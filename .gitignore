@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Vite
+dist/
+.vite/
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.suo
+*.user
+
+# Logs
+*.log
+npm-debug.log*
+
+# Certs (vite --https generates these)
+*.pem

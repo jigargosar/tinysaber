@@ -1,0 +1,10 @@
+{
+  "name": "beat-saber-web",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "vite --https --host"
+  },
+  "dependencies": {
+    "vite": "^7.3.1"
+  }
+}
