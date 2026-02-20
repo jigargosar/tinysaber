@@ -2,9 +2,9 @@
   "name": "beat-saber-web",
   "version": "1.0.0",
   "scripts": {
-    "dev": "vite --https --host"
+    "dev": "vite --host"
   },
-  "dependencies": {
-    "vite": "^7.3.1"
+  "devDependencies": {
+    "vite": "^7.0.0"
   }
 }
