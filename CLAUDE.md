@@ -38,3 +38,21 @@ To control controllers programmatically:
 - `xrDevice.controllers['left' | 'right'].updateButtonValue('a-button' | 'trigger' | 'squeeze' | 'thumbstick', 0..1)`
 
 See `docs/architecture.md` for render loop, hit detection, music, and particle system details.
+
+## Source Structure
+
+Two source files only:
+- `src/main.js` — entire game: scene setup, sabers, blocks, particles, hit detection, HUD, XR session, render loop
+- `src/music.js` — procedural audio; exports `createMusic()` which returns `{ toggle() }`
+
+## Conventions
+
+**`BUILD` constant** (`src/main.js` top) — increment on notable changes; displayed in the score HUD.
+
+**Hot-path allocation** — pre-allocated temporaries (`_box`, `_segA`, `_segB`, `_d`, `_expanded`, `tmpPos`, etc.) avoid GC in the render loop. Never replace them with inline `new THREE.Vector3()` calls inside `setAnimationLoop` or `checkHits`.
+
+**Disabled canvas panels** — the cheat sheet and debug button panel are intentionally commented out in `src/main.js` with detailed notes explaining why (GPU texture re-upload, React incompatibility). Do not remove them; the comments are documentation.
+
+## Scoring
+
+Hitting a block with the correct saber color: +100. Wrong color: +25. Score is module-level state in `main.js`; `drawHUD()` must be called after any change.
