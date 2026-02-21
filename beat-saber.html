@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Beat Saber MVP</title>
-  <!-- BUILD v17 -->
+  <!-- BUILD v18 -->
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: hsl(270,100%,3%); overflow: hidden; font-family: monospace; }
@@ -42,12 +42,19 @@
 <body>
 <div id="ui">
   <button id="enter-btn">Enter VR</button>
-  <div id="status">BUILD v17 · HTTPS required</div>
+  <div id="status">BUILD v18 · WASD to move</div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script>
-const BUILD = 'v17';
+<script type="module">
+import * as THREE from 'three';
+import { XRDevice, metaQuest3 } from 'iwer';
+
+const BUILD = 'v18';
+
+// ─── IWER — emulates WebXR device so we can test in-browser ───────────────
+const xrDevice = new XRDevice(metaQuest3);
+xrDevice.installRuntime();
+xrDevice.position.set(0, 1.6, 0);
 
 // ─── Renderer ─────────────────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ antialias: true });

@@ -215,33 +215,6 @@ function spawnParticles(pos, color) {
   }
 }
 
-// ── Desktop VR Controls ───────────────────────────────────────────────────
-const keys = {};
-window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; });
-window.addEventListener('keyup',   e => { keys[e.key.toLowerCase()] = false; });
-
-const playerPos = new THREE.Vector3(0, 1.6, 0);
-let playerYaw = 0;
-const MOVE_SPEED = 2; // m/s
-const _moveDir = new THREE.Vector3();
-const _moveQuat = new THREE.Quaternion();
-
-// Both sabers move as a unit — IJKL/UO drives a shared offset relative to playerPos
-const SABER_SPEED  = 3;   // m/s
-const SABER_SPREAD = 0.3; // half-gap between sabers (total 0.6m wide)
-const saberOffset  = new THREE.Vector3(0, -0.4, -0.6); // local offset from player
-
-renderer.domElement.addEventListener('click', () => {
-  if (xrSession) renderer.domElement.requestPointerLock();
-});
-
-document.addEventListener('mousemove', e => {
-  if (document.pointerLockElement !== renderer.domElement || !xrSession) return;
-  playerYaw -= e.movementX * 0.002;
-  _moveQuat.setFromEuler(new THREE.Euler(0, playerYaw, 0, 'YXZ'));
-  xrDevice.quaternion.set(_moveQuat.x, _moveQuat.y, _moveQuat.z, _moveQuat.w);
-});
-
 // ── XR Session ────────────────────────────────────────────────────────────
 let xrSession = null, refSpace = null;
 
@@ -316,37 +289,6 @@ renderer.setAnimationLoop((time, frame) => {
       p.userData.active = false;
       activeParticles.splice(i, 1);
     }
-  }
-
-  // WASD + Space/Shift locomotion — world-axis aligned, no camera rotation applied
-  if (xrSession) {
-    _moveDir.set(0, 0, 0);
-    if (keys['w'])      _moveDir.z -= 1;
-    if (keys['s'])      _moveDir.z += 1;
-    if (keys['a'])      _moveDir.x -= 1;
-    if (keys['d'])      _moveDir.x += 1;
-    if (keys[' '])      _moveDir.y += 1;
-    if (keys['shift'])  _moveDir.y -= 1;
-    if (_moveDir.lengthSq() > 0) {
-      _moveDir.normalize();
-      playerPos.addScaledVector(_moveDir, MOVE_SPEED * dt);
-      xrDevice.position.set(playerPos.x, playerPos.y, playerPos.z);
-    }
-  }
-
-  // IJKL + U/O — wide dual-saber swing, offset relative to player body
-  if (xrSession) {
-    if (keys['l']) saberOffset.x += SABER_SPEED * dt;
-    if (keys['j']) saberOffset.x -= SABER_SPEED * dt;
-    if (keys['i']) saberOffset.y += SABER_SPEED * dt;
-    if (keys['k']) saberOffset.y -= SABER_SPEED * dt;
-    if (keys['u']) saberOffset.z -= SABER_SPEED * dt;
-    if (keys['o']) saberOffset.z += SABER_SPEED * dt;
-    const wx = playerPos.x + saberOffset.x;
-    const wy = playerPos.y + saberOffset.y;
-    const wz = playerPos.z + saberOffset.z;
-    xrDevice.controllers['left'].position.set(wx - SABER_SPREAD, wy, wz);
-    xrDevice.controllers['right'].position.set(wx + SABER_SPREAD, wy, wz);
   }
 
   renderer.render(scene, camera);
