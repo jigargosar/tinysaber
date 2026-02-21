@@ -36,3 +36,6 @@ backups/
 
 # Local deploy scripts
 deploy.ps1
+
+# Local config overrides
+*.local.json
