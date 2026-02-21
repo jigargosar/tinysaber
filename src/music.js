@@ -56,12 +56,20 @@ function getSongSection(globalStep) {
   const STEPS_PER_BAR = 16;
   const cycleLen = STAGES.reduce((s, st) => s + st.bars * STEPS_PER_BAR, 0);
   let remaining = globalStep % cycleLen;
+  let stageIndex = 0;
   for (const stage of STAGES) {
     const stageSteps = stage.bars * STEPS_PER_BAR;
-    if (remaining < stageSteps) return { stage, step: remaining % STEPS_PER_BAR };
+    if (remaining < stageSteps) {
+      const bar  = Math.floor(remaining / STEPS_PER_BAR);
+      const step = remaining % STEPS_PER_BAR;
+      // Intro only: on even bars (1, 3), add a kick hit on step 2
+      const extraKick = stageIndex === 0 && bar % 2 === 1 && step === 2;
+      return { stage, step, extraKick };
+    }
     remaining -= stageSteps;
+    stageIndex++;
   }
-  return { stage: STAGES[0], step: 0 };
+  return { stage: STAGES[0], step: 0, extraKick: false };
 }
 
 function createNoiseBuffer(audioCtx, duration) {
@@ -187,8 +195,8 @@ export function createMusic() {
   const playArp   = createArpPlayer(graph);
 
   function scheduleStep(globalStep, t) {
-    const { stage, step } = getSongSection(globalStep);
-    if (stage.kick[step])  playKick(t);
+    const { stage, step, extraKick } = getSongSection(globalStep);
+    if (stage.kick[step] || extraKick) playKick(t);
     if (stage.snare[step]) playSnare(t);
     if (stage.hat[step])   playHat(t, stage.hatAcc[step]);
     playBass(t, stage.bass[step]);
