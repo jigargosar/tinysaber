@@ -1,11 +1,9 @@
 import * as THREE from 'three';
 import { XRDevice, metaQuest3 } from 'iwer';
-import { DevUI } from '@iwer/devui';
 
 // ── IWER must be installed before any WebXR calls ──────────────────────────
 const xrDevice = new XRDevice(metaQuest3);
 xrDevice.installRuntime();
-const devui = new DevUI(xrDevice);
 
 // ── Renderer ──────────────────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -220,15 +218,21 @@ function spawnParticles(pos, color) {
 let xrSession = null, refSpace = null;
 
 document.getElementById('enter-btn').addEventListener('click', async () => {
+  console.log('click: navigator.xr =', navigator.xr);
   if (!navigator.xr) return;
-  const supported = await navigator.xr.isSessionSupported('immersive-vr').catch(() => false);
+  const supported = await navigator.xr.isSessionSupported('immersive-vr').catch((e) => { console.error('isSessionSupported error', e); return false; });
+  console.log('click: supported =', supported);
   if (!supported) return;
 
   xrSession = await navigator.xr.requestSession('immersive-vr', {
     requiredFeatures: ['local-floor'],
-  });
-  refSpace = await xrSession.requestReferenceSpace('local-floor');
-  await renderer.xr.setSession(xrSession);
+  }).catch(e => { console.error('requestSession error', e); });
+  console.log('xrSession =', xrSession);
+  if (!xrSession) return;
+  refSpace = await xrSession.requestReferenceSpace('local-floor').catch(e => { console.error('requestReferenceSpace error', e); });
+  console.log('refSpace =', refSpace);
+  await renderer.xr.setSession(xrSession).catch(e => { console.error('setSession error', e); });
+  console.log('setSession done');
 
   xrSession.addEventListener('end', () => {
     xrSession = null; refSpace = null;

@@ -9,7 +9,6 @@
     "vite": "^7.0.0"
   },
   "dependencies": {
-    "@iwer/devui": "^1.1.2",
     "iwer": "^2.1.1",
     "three": "^0.183.1"
   }
