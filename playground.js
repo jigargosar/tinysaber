@@ -313,16 +313,20 @@ renderer.setAnimationLoop((time, frame) => {
     }
   }
 
-  // WASD locomotion
-  if (xrSession && (keys['w'] || keys['s'] || keys['a'] || keys['d'])) {
+  // WASD + Space/Shift locomotion — world-axis aligned, no camera rotation applied
+  if (xrSession) {
     _moveDir.set(0, 0, 0);
-    if (keys['w']) _moveDir.z -= 1;
-    if (keys['s']) _moveDir.z += 1;
-    if (keys['a']) _moveDir.x -= 1;
-    if (keys['d']) _moveDir.x += 1;
-    _moveDir.normalize().applyEuler(new THREE.Euler(0, playerYaw, 0));
-    playerPos.addScaledVector(_moveDir, MOVE_SPEED * dt);
-    xrDevice.position.set(playerPos.x, playerPos.y, playerPos.z);
+    if (keys['w'])      _moveDir.z -= 1;
+    if (keys['s'])      _moveDir.z += 1;
+    if (keys['a'])      _moveDir.x -= 1;
+    if (keys['d'])      _moveDir.x += 1;
+    if (keys[' '])      _moveDir.y += 1;
+    if (keys['shift'])  _moveDir.y -= 1;
+    if (_moveDir.lengthSq() > 0) {
+      _moveDir.normalize();
+      playerPos.addScaledVector(_moveDir, MOVE_SPEED * dt);
+      xrDevice.position.set(playerPos.x, playerPos.y, playerPos.z);
+    }
   }
 
   renderer.render(scene, camera);
