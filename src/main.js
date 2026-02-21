@@ -433,6 +433,9 @@ document.getElementById('enter-btn').addEventListener('click', async () => {
 
   xrSession.addEventListener('end', () => {
     xrSession = null; refSpace = null;
+    clearAllBlocks();
+    score = 0; spawnTimer = 0;
+    drawHUD();
     document.getElementById('ui').style.display = 'flex';
   });
 
