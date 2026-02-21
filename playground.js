@@ -214,6 +214,28 @@ function spawnParticles(pos, color) {
   }
 }
 
+// ── Desktop VR Controls ───────────────────────────────────────────────────
+const keys = {};
+window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; });
+window.addEventListener('keyup',   e => { keys[e.key.toLowerCase()] = false; });
+
+const playerPos = new THREE.Vector3(0, 0, 0);
+let playerYaw = 0;
+const MOVE_SPEED = 2; // m/s
+const _moveDir = new THREE.Vector3();
+const _moveQuat = new THREE.Quaternion();
+
+renderer.domElement.addEventListener('click', () => {
+  if (xrSession) renderer.domElement.requestPointerLock();
+});
+
+document.addEventListener('mousemove', e => {
+  if (document.pointerLockElement !== renderer.domElement || !xrSession) return;
+  playerYaw -= e.movementX * 0.002;
+  _moveQuat.setFromEuler(new THREE.Euler(0, playerYaw, 0, 'YXZ'));
+  xrDevice.quaternion.set(_moveQuat.x, _moveQuat.y, _moveQuat.z, _moveQuat.w);
+});
+
 // ── XR Session ────────────────────────────────────────────────────────────
 let xrSession = null, refSpace = null;
 
@@ -288,6 +310,18 @@ renderer.setAnimationLoop((time, frame) => {
       p.userData.active = false;
       activeParticles.splice(i, 1);
     }
+  }
+
+  // WASD locomotion
+  if (xrSession && (keys['w'] || keys['s'] || keys['a'] || keys['d'])) {
+    _moveDir.set(0, 0, 0);
+    if (keys['w']) _moveDir.z -= 1;
+    if (keys['s']) _moveDir.z += 1;
+    if (keys['a']) _moveDir.x -= 1;
+    if (keys['d']) _moveDir.x += 1;
+    _moveDir.normalize().applyEuler(new THREE.Euler(0, playerYaw, 0));
+    playerPos.addScaledVector(_moveDir, MOVE_SPEED * dt);
+    xrDevice.position.set(playerPos.x, playerPos.y, playerPos.z);
   }
 
   renderer.render(scene, camera);
