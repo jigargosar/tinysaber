@@ -1,51 +1,3 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>Beat Saber MVP</title>
-  <!-- BUILD v18 -->
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: hsl(270,100%,3%); overflow: hidden; font-family: monospace; }
-  canvas { display: block; }
-
-  #ui {
-    position: fixed; inset: 0; display: flex; flex-direction: column;
-    align-items: flex-end; justify-content: flex-end;
-    padding: 24px; pointer-events: none;
-  }
-  #enter-btn {
-    pointer-events: all;
-    padding: 14px 36px;
-    background: hsl(270,80%,40%);
-    color: hsl(270,100%,90%);
-    border: 2px solid hsl(270,80%,60%);
-    border-radius: 6px;
-    font-family: monospace;
-    font-size: 20px;
-    letter-spacing: 2px;
-    cursor: pointer;
-    text-transform: uppercase;
-    transition: background 0.2s;
-  }
-  #enter-btn:hover { background: hsl(270,80%,55%); }
-  #enter-btn:disabled { opacity: 0.4; cursor: default; }
-  #status {
-    margin-top: 16px;
-    color: hsl(270,60%,70%);
-    font-size: 13px;
-    letter-spacing: 1px;
-    pointer-events: none;
-  }
-</style>
-</head>
-<body>
-<div id="ui">
-  <button id="enter-btn">Enter VR</button>
-  <div id="status">BUILD v18 · WASD to move</div>
-</div>
-
-<script type="module">
 import * as THREE from 'three';
 import { XRDevice, metaQuest3 } from 'iwer';
 
@@ -789,6 +741,4 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
-</script>
-</body>
-</html>
+

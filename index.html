@@ -2,58 +2,48 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Beat Saber Web</title>
+<title>Beat Saber MVP</title>
+  <!-- BUILD v18 -->
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    background: hsl(270,100%,3%);
-    color: hsl(270,60%,80%);
-    font-family: monospace;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 16px;
+  body { background: hsl(270,100%,3%); overflow: hidden; font-family: monospace; }
+  canvas { display: block; }
+
+  #ui {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: flex-end; justify-content: flex-end;
+    padding: 24px; pointer-events: none;
   }
-  h1 {
-    font-size: 14px;
-    letter-spacing: 4px;
-    text-transform: uppercase;
-    color: hsl(270,40%,50%);
-    padding-bottom: 24px;
-  }
-  a {
-    display: block;
-    padding: 14px 48px;
-    border: 1px solid hsl(270,60%,35%);
-    border-radius: 4px;
-    color: hsl(270,80%,80%);
-    text-decoration: none;
-    font-size: 13px;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    transition: all 0.15s;
-  }
-  a:hover {
-    background: hsl(270,60%,15%);
-    border-color: hsl(270,80%,60%);
+  #enter-btn {
+    pointer-events: all;
+    padding: 14px 36px;
+    background: hsl(270,80%,40%);
     color: hsl(270,100%,90%);
+    border: 2px solid hsl(270,80%,60%);
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 20px;
+    letter-spacing: 2px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: background 0.2s;
   }
-  .sub {
-    font-size: 11px;
-    color: hsl(270,30%,40%);
+  #enter-btn:hover { background: hsl(270,80%,55%); }
+  #enter-btn:disabled { opacity: 0.4; cursor: default; }
+  #status {
+    margin-top: 16px;
+    color: hsl(270,60%,70%);
+    font-size: 13px;
     letter-spacing: 1px;
-    text-align: center;
-    padding-top: 2px;
+    pointer-events: none;
   }
 </style>
 </head>
 <body>
-  <h1>Beat Saber Web</h1>
-  <a href="/beat-saber.html">Beat Saber MVP</a>
-  <p class="sub">v17 · blocks · music · scoring</p>
-  <a href="/playground.html">IWER Playground</a>
-  <p class="sub">WebXR emulator · DevUI controls</p>
+<div id="ui">
+  <button id="enter-btn">Enter VR</button>
+  <div id="status">BUILD v18</div>
+</div>
+<script type="module" src="/src/main.js"></script>
 </body>
 </html>
