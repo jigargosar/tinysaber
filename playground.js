@@ -226,11 +226,10 @@ const MOVE_SPEED = 2; // m/s
 const _moveDir = new THREE.Vector3();
 const _moveQuat = new THREE.Quaternion();
 
-// Both sabers move as a unit — IJKL drives a shared center point
-const SABER_SPEED  = 3;    // m/s
-const SABER_SPREAD = 0.3;  // half-gap between sabers (total 0.6m wide)
-const SABER_Z      = -0.6; // fixed depth in front of player
-const saberCenter  = new THREE.Vector3(0, 1.2, SABER_Z);
+// Both sabers move as a unit — IJKL/UO drives a shared offset relative to playerPos
+const SABER_SPEED  = 3;   // m/s
+const SABER_SPREAD = 0.3; // half-gap between sabers (total 0.6m wide)
+const saberOffset  = new THREE.Vector3(0, -0.4, -0.6); // local offset from player
 
 renderer.domElement.addEventListener('click', () => {
   if (xrSession) renderer.domElement.requestPointerLock();
@@ -335,19 +334,19 @@ renderer.setAnimationLoop((time, frame) => {
     }
   }
 
-  // IJKL — wide dual-saber swing (both controllers move as one unit)
+  // IJKL + U/O — wide dual-saber swing, offset relative to player body
   if (xrSession) {
-    let sx = 0, sy = 0;
-    if (keys['l']) sx += 1;
-    if (keys['j']) sx -= 1;
-    if (keys['i']) sy += 1;
-    if (keys['k']) sy -= 1;
-    if (sx !== 0 || sy !== 0) {
-      saberCenter.x += sx * SABER_SPEED * dt;
-      saberCenter.y += sy * SABER_SPEED * dt;
-    }
-    xrDevice.controllers['left'].position.set(saberCenter.x - SABER_SPREAD, saberCenter.y, saberCenter.z);
-    xrDevice.controllers['right'].position.set(saberCenter.x + SABER_SPREAD, saberCenter.y, saberCenter.z);
+    if (keys['l']) saberOffset.x += SABER_SPEED * dt;
+    if (keys['j']) saberOffset.x -= SABER_SPEED * dt;
+    if (keys['i']) saberOffset.y += SABER_SPEED * dt;
+    if (keys['k']) saberOffset.y -= SABER_SPEED * dt;
+    if (keys['u']) saberOffset.z -= SABER_SPEED * dt;
+    if (keys['o']) saberOffset.z += SABER_SPEED * dt;
+    const wx = playerPos.x + saberOffset.x;
+    const wy = playerPos.y + saberOffset.y;
+    const wz = playerPos.z + saberOffset.z;
+    xrDevice.controllers['left'].position.set(wx - SABER_SPREAD, wy, wz);
+    xrDevice.controllers['right'].position.set(wx + SABER_SPREAD, wy, wz);
   }
 
   renderer.render(scene, camera);
