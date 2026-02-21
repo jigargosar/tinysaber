@@ -27,3 +27,12 @@ npm-debug.log*
 
 # Certs (vite --https generates these)
 *.pem
+
+# Code smell reports
+.smell-report.*
+
+# Local backups
+backups/
+
+# Local deploy scripts
+deploy.ps1

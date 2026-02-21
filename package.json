@@ -5,6 +5,7 @@
     "dev": "vite --host"
   },
   "devDependencies": {
+    "@vitejs/plugin-basic-ssl": "^2.1.4",
     "vite": "^7.0.0"
   }
 }
