@@ -4,6 +4,7 @@ import { XRDevice, metaQuest3 } from 'iwer';
 // ── IWER must be installed before any WebXR calls ──────────────────────────
 const xrDevice = new XRDevice(metaQuest3);
 xrDevice.installRuntime();
+xrDevice.position.set(0, 1.6, 0);
 
 // ── Renderer ──────────────────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -219,7 +220,7 @@ const keys = {};
 window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; });
 window.addEventListener('keyup',   e => { keys[e.key.toLowerCase()] = false; });
 
-const playerPos = new THREE.Vector3(0, 0, 0);
+const playerPos = new THREE.Vector3(0, 1.6, 0);
 let playerYaw = 0;
 const MOVE_SPEED = 2; // m/s
 const _moveDir = new THREE.Vector3();
