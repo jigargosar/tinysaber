@@ -437,6 +437,7 @@ document.getElementById('enter-btn').addEventListener('click', async () => {
   });
 
   document.getElementById('ui').style.display = 'none';
+  music.toggle();
 });
 
 function status(msg) {
