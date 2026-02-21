@@ -1,5 +1,10 @@
 Beat Saber Web — Project Notes
 
+## Project Status
+
+- `playground.html` + `playground.js` — active development area for exploring and testing the `iwer` library
+- `beat-saber.html` — the main game, to be enhanced later once iwer usage is understood
+
 ## WebXR Emulation
 
 @iwer/devui is deprecated — do not use it. It pulls in React, react-dom, and styled-components which are incompatible with this plain JS project.
