@@ -226,6 +226,12 @@ const MOVE_SPEED = 2; // m/s
 const _moveDir = new THREE.Vector3();
 const _moveQuat = new THREE.Quaternion();
 
+// Both sabers move as a unit — IJKL drives a shared center point
+const SABER_SPEED  = 3;    // m/s
+const SABER_SPREAD = 0.3;  // half-gap between sabers (total 0.6m wide)
+const SABER_Z      = -0.6; // fixed depth in front of player
+const saberCenter  = new THREE.Vector3(0, 1.2, SABER_Z);
+
 renderer.domElement.addEventListener('click', () => {
   if (xrSession) renderer.domElement.requestPointerLock();
 });
@@ -327,6 +333,21 @@ renderer.setAnimationLoop((time, frame) => {
       playerPos.addScaledVector(_moveDir, MOVE_SPEED * dt);
       xrDevice.position.set(playerPos.x, playerPos.y, playerPos.z);
     }
+  }
+
+  // IJKL — wide dual-saber swing (both controllers move as one unit)
+  if (xrSession) {
+    let sx = 0, sy = 0;
+    if (keys['l']) sx += 1;
+    if (keys['j']) sx -= 1;
+    if (keys['i']) sy += 1;
+    if (keys['k']) sy -= 1;
+    if (sx !== 0 || sy !== 0) {
+      saberCenter.x += sx * SABER_SPEED * dt;
+      saberCenter.y += sy * SABER_SPEED * dt;
+    }
+    xrDevice.controllers['left'].position.set(saberCenter.x - SABER_SPREAD, saberCenter.y, saberCenter.z);
+    xrDevice.controllers['right'].position.set(saberCenter.x + SABER_SPREAD, saberCenter.y, saberCenter.z);
   }
 
   renderer.render(scene, camera);
