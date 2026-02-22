@@ -276,18 +276,38 @@ function generateSong(seed) {
     high: rngInt(0, 2), peak: rngInt(0, 2),
   };
 
-  // Flatten sections into bar-level data
+  // Flatten sections into bar-level data, with energy ramps for intro/outro
   const totalBars = structure.reduce((s, sec) => s + sec.bars, 0);
   const bars = [];
   let barIndex = 0;
 
-  for (const section of structure) {
+  for (let si = 0; si < structure.length; si++) {
+    const section = structure[si];
+    const isOutro = si === structure.length - 1;
+    const isIntro = si === 0;
+    // Outro: ramp energy down from previous section's level to near-zero
+    // so instruments peel off naturally (melody→arp→snare→kick/hat→bass→pad)
+    const prevEnergy = si > 0 ? structure[si - 1].energy : 0;
+    const outroStart = isOutro ? Math.min(prevEnergy, 0.7) : 0;
+
     for (let b = 0; b < section.bars; b++) {
       const phraseIdx = barIndex % 4;
+      let energy = section.energy;
+
+      if (isOutro && section.bars > 1) {
+        // Linear ramp from previous section energy down to near-zero
+        const t = b / (section.bars - 1); // 0→1 across outro bars
+        energy = outroStart * (1 - t) + 0.02 * t;
+      } else if (isIntro && section.bars > 1) {
+        // Gentle ramp up within intro
+        const t = b / (section.bars - 1);
+        energy = 0.02 + section.energy * t;
+      }
+
       bars.push({
         bar: barIndex,
         section: section.name,
-        energy: section.energy,
+        energy,
         chordSymbol: chordSymbols[phraseIdx],
         numeral: phrase[phraseIdx],
         voiced: phraseVoicings[phraseIdx],
@@ -463,6 +483,7 @@ let arpFilter = null, arpReverb = null;
 let melodyFilter = null, melodyReverb = null;
 let snareFilter = null;
 let hatFilter = null;
+let masterGain = null;
 let parts = [];
 let highlightId = null;
 let barEls = [];
@@ -500,6 +521,7 @@ function disposeAudio() {
   if (melodyReverb) { melodyReverb.dispose(); melodyReverb = null; }
   if (snareFilter) { snareFilter.dispose(); snareFilter = null; }
   if (hatFilter) { hatFilter.dispose(); hatFilter = null; }
+  if (masterGain) { masterGain.dispose(); masterGain = null; }
 
   isPlaying = false;
   isPaused = false;
@@ -548,6 +570,9 @@ async function play(seed) {
     barEls.push(div);
   }
 
+  // Master gain — all instruments route through this for fade-out
+  masterGain = new Tone.Gain(1).toDestination();
+
   // Create instruments + effects
   // Pad — background texture, not lead
   padChorus = new Tone.Chorus({ frequency: 0.4, delayTime: 3.5, depth: 0.5, wet: 0.3 }).start();
@@ -558,7 +583,7 @@ async function play(seed) {
     envelope: { attack: 0.3, decay: 0.2, sustain: 0.4, release: 0.8 },
     volume: -18,
   });
-  pad.chain(padChorus, padFilter, padReverb, Tone.getDestination());
+  pad.chain(padChorus, padFilter, padReverb, masterGain);
 
   // Bass — punchy sawtooth
   bassFilter = new Tone.Filter({ frequency: 800, type: 'lowpass', rolloff: -12 });
@@ -568,7 +593,7 @@ async function play(seed) {
     filterEnvelope: { attack: 0.005, decay: 0.08, sustain: 0.4, release: 0.2, baseFrequency: 150, octaves: 2.5 },
     volume: -3,
   });
-  bass.chain(bassFilter, Tone.getDestination());
+  bass.chain(bassFilter, masterGain);
 
   // Kick — heavy EDM kick
   kick = new Tone.MembraneSynth({
@@ -577,7 +602,7 @@ async function play(seed) {
     envelope: { attack: 0.001, decay: 0.35, sustain: 0, release: 0.3 },
     volume: -1,
   });
-  kick.toDestination();
+  kick.connect(masterGain);
 
   // Snare — punchy
   snareFilter = new Tone.Filter({ frequency: 1200, type: 'highpass' });
@@ -586,7 +611,7 @@ async function play(seed) {
     envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.05 },
     volume: -6,
   });
-  snare.chain(snareFilter, Tone.getDestination());
+  snare.chain(snareFilter, masterGain);
 
   // Hi-hat — crisp
   hatFilter = new Tone.Filter({ frequency: 8000, type: 'highpass' });
@@ -595,7 +620,7 @@ async function play(seed) {
     envelope: { attack: 0.001, decay: 0.04, sustain: 0, release: 0.01 },
     volume: -10,
   });
-  hat.chain(hatFilter, Tone.getDestination());
+  hat.chain(hatFilter, masterGain);
 
   // Arp — sharp electronic square
   arpFilter = new Tone.Filter({ frequency: 3000, type: 'lowpass' });
@@ -605,7 +630,7 @@ async function play(seed) {
     envelope: { attack: 0.003, decay: 0.1, sustain: 0.05, release: 0.15 },
     volume: -8,
   });
-  arp.chain(arpFilter, arpReverb, Tone.getDestination());
+  arp.chain(arpFilter, arpReverb, masterGain);
 
   // Melody — cutting sawtooth lead
   melodyFilter = new Tone.Filter({ frequency: 2200, type: 'lowpass' });
@@ -615,7 +640,7 @@ async function play(seed) {
     envelope: { attack: 0.01, decay: 0.15, sustain: 0.25, release: 0.3 },
     volume: -6,
   });
-  melody.chain(melodyFilter, melodyReverb, Tone.getDestination());
+  melody.chain(melodyFilter, melodyReverb, masterGain);
 
   // ── Schedule events via Tone.Part ──
 
@@ -697,9 +722,14 @@ async function play(seed) {
     }, time);
   }, '1m');
 
-  // Auto-stop at end
+  // Gentle master fade on last bar as safety net (instruments already peeling off)
   const totalTime = song.totalBars * song.barSec;
-  transport.schedule(() => { stop(); }, totalTime);
+  const fadeStart = totalTime - song.barSec;
+  transport.schedule((time) => {
+    masterGain.gain.setValueAtTime(1, time);
+    masterGain.gain.linearRampToValueAtTime(0, time + song.barSec);
+  }, fadeStart);
+  transport.schedule(() => { stop(); }, totalTime + 1.5);
 
   transport.bpm.value = BPM;
   transport.start();
