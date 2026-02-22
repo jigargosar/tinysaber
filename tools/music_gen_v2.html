@@ -74,7 +74,8 @@ function rngInt(min, max) { return min + Math.floor(rng() * (max - min + 1)); }
 function pick(arr) { return arr[Math.floor(rng() * arr.length)]; }
 
 // ─── Constants ────────────────────────────────────────────────────────────
-const BPM = 128;
+const BPM_CENTER = 128;
+const BPM_RANGE = 12;  // ±12 → 116–140
 const KEY_POOL = ['C', 'D', 'E', 'F', 'G', 'A'];
 const VOICE_RANGE = ['C3', 'C5'];
 const STRUCTURE_NAMES = ['Standard', 'Slow Burn', 'Energetic', 'Minimal', 'Epic'];
@@ -262,6 +263,58 @@ function buildEnergyCurve(structure) {
   return { curve, sectionNames };
 }
 
+// ─── BPM Curve (smooth per-bar variation) ─────────────────────────────────
+
+function buildBpmCurve(totalBars) {
+  // Seed-varied base offset from center
+  const baseOffset = (rng() - 0.5) * BPM_RANGE * 0.5; // ±6 shift per song
+
+  // Generate smooth noise at ~2-bar frequency
+  const noiseLen = Math.ceil(totalBars / 2) + 2;
+  const noise = [];
+  for (let i = 0; i < noiseLen; i++) noise.push(rng());
+
+  const bpmCurve = [];
+  for (let i = 0; i < totalBars; i++) {
+    const fi = Math.floor(i * 0.5);
+    const frac = (i * 0.5) - fi;
+    const t = frac * frac * (3 - 2 * frac); // smoothstep
+    const a = noise[Math.min(fi, noiseLen - 1)];
+    const b = noise[Math.min(fi + 1, noiseLen - 1)];
+    const n = a + (b - a) * t; // 0..1
+    const bpm = BPM_CENTER + baseOffset + (n - 0.5) * BPM_RANGE;
+    bpmCurve.push(Math.round(Math.max(100, Math.min(160, bpm))));
+  }
+
+  // 2 passes of neighbor smoothing to avoid jarring jumps
+  function smooth(arr) {
+    return arr.map((e, i) => {
+      const prev = i > 0 ? arr[i - 1] : e;
+      const next = i < arr.length - 1 ? arr[i + 1] : e;
+      return Math.round(prev * 0.2 + e * 0.6 + next * 0.2);
+    });
+  }
+  let result = bpmCurve;
+  for (let pass = 0; pass < 2; pass++) result = smooth(result);
+
+  return result;
+}
+
+// Compute cumulative bar start times and per-bar durations from BPM curve
+function buildBarTiming(bpmCurve) {
+  const barStartTimes = [];
+  const barDurations = [];
+  let t = 0;
+  for (let i = 0; i < bpmCurve.length; i++) {
+    const beatSec = 60 / bpmCurve[i];
+    const barSec = beatSec * 4;
+    barStartTimes.push(t);
+    barDurations.push(barSec);
+    t += barSec;
+  }
+  return { barStartTimes, barDurations, totalTime: t };
+}
+
 // ─── Sigmoid Instrument Activation ────────────────────────────────────────
 
 function sigmoid(x) { return 1 / (1 + Math.exp(-x)); }
@@ -353,6 +406,10 @@ function generateSong(seed) {
   const { curve: energyCurve, sectionNames } = buildEnergyCurve(structure);
   const totalBars = energyCurve.length;
 
+  // Build per-bar BPM curve and timing
+  const bpmCurve = buildBpmCurve(totalBars);
+  const { barStartTimes, barDurations, totalTime } = buildBarTiming(bpmCurve);
+
   // Build bar data
   const bars = [];
   for (let i = 0; i < totalBars; i++) {
@@ -361,6 +418,7 @@ function generateSong(seed) {
       bar: i,
       section: sectionNames[i],
       energy: energyCurve[i],
+      bpm: bpmCurve[i],
       chordSymbol: chordSymbols[phraseIdx],
       numeral: phrase[phraseIdx],
       voiced: phraseVoicings[phraseIdx],
@@ -372,9 +430,6 @@ function generateSong(seed) {
   for (let i = 0; i < motifLen; i++) melodyRhythm.push(i === 0 || rng() < 0.5);
 
   // Pre-compute ALL events
-  const beatSec = 60 / BPM;
-  const stepSec = beatSec / 2;
-  const barSec = beatSec * 4;
 
   const padEvents = [];
   const bassEvents = [];
@@ -388,7 +443,10 @@ function generateSong(seed) {
   let melodyStepCounter = 0;
 
   for (const bar of bars) {
-    const barTime = bar.bar * barSec;
+    const barTime = barStartTimes[bar.bar];
+    const barSec = barDurations[bar.bar];
+    const beatSec = barSec / 4;
+    const stepSec = beatSec / 2;
     const energy = bar.energy;
     const level = energyLevel(energy);
     const vols = computeVolumes(energy, ordering);
@@ -499,11 +557,20 @@ function generateSong(seed) {
     }
   }
 
+  // Tone.Part requires strictly ascending times — sort and deduplicate
+  function dedup(events) {
+    events.sort((a, b) => a.time - b.time);
+    return events.filter((e, i) => i === 0 || e.time > events[i - 1].time);
+  }
+
   return {
     seed, tonic, structName, structIdx, orderName, ordering, phrase, chordSymbols,
-    phraseVoicings, structure, bars, totalBars, energyCurve,
-    padEvents, bassEvents, kickEvents, snareEvents, hatEvents, arpEvents, melodyEvents,
-    barSec,
+    phraseVoicings, structure, bars, totalBars, energyCurve, bpmCurve,
+    barStartTimes, barDurations, totalTime,
+    padEvents: dedup(padEvents), bassEvents: dedup(bassEvents),
+    kickEvents: dedup(kickEvents), snareEvents: dedup(snareEvents),
+    hatEvents: dedup(hatEvents), arpEvents: dedup(arpEvents),
+    melodyEvents: dedup(melodyEvents),
   };
 }
 
@@ -563,7 +630,9 @@ async function play(seed) {
   log(`Character: ${song.orderName} (${song.ordering.join(' \u2192 ')})`);
   log(`Phrase: ${song.phrase.join(' \u2192 ')}`);
   log(`Chords: ${song.chordSymbols.join(' \u2192 ')}`);
-  log(`BPM: ${BPM}  Bars: ${song.totalBars}`);
+  const bpmMin = Math.min(...song.bpmCurve);
+  const bpmMax = Math.max(...song.bpmCurve);
+  log(`BPM: ${bpmMin}–${bpmMax}  Bars: ${song.totalBars}`);
   log('');
 
   // Log per-bar details
@@ -583,7 +652,7 @@ async function play(seed) {
     const eBar = '\u2588'.repeat(Math.round(bar.energy * 10)).padEnd(10, '\u2591');
     const vols = computeVolumes(bar.energy, song.ordering);
     const active = dominantInstruments(vols).join(' ');
-    const line = `Bar ${String(bar.bar).padStart(2)}: ${eBar} ${bar.numeral.padEnd(5)} ${bar.chordSymbol.padEnd(6)} ${active}`;
+    const line = `Bar ${String(bar.bar).padStart(2)}: ${eBar} ${String(bar.bpm).padStart(3)}bpm ${bar.numeral.padEnd(5)} ${bar.chordSymbol.padEnd(6)} ${active}`;
     const div = document.createElement('div');
     div.className = 'bar-line';
     div.textContent = line;
@@ -712,32 +781,33 @@ async function play(seed) {
     parts.push(melodyPart);
   }
 
-  // Bar highlighting
+  // Bar highlighting — schedule one event per bar using absolute times
   const transport = Tone.getTransport();
-  highlightId = transport.scheduleRepeat((time) => {
-    Tone.getDraw().schedule(() => {
-      const pos = transport.position;
-      const currentBar = parseInt(pos.split(':')[0], 10);
-      for (let i = 0; i < barEls.length; i++) {
-        if (i === currentBar) {
-          barEls[i].classList.add('active');
-          barEls[i].scrollIntoView({ block: 'nearest' });
-        } else {
-          barEls[i].classList.remove('active');
+  for (let i = 0; i < song.totalBars; i++) {
+    const barIdx = i;
+    transport.schedule((time) => {
+      Tone.getDraw().schedule(() => {
+        for (let j = 0; j < barEls.length; j++) {
+          if (j === barIdx) {
+            barEls[j].classList.add('active');
+            barEls[j].scrollIntoView({ block: 'nearest' });
+          } else {
+            barEls[j].classList.remove('active');
+          }
         }
-      }
-    }, time);
-  }, '1m');
+      }, time);
+    }, song.barStartTimes[i]);
+  }
 
   // Master fade on last bar
-  const totalTime = song.totalBars * song.barSec;
+  const lastBarDur = song.barDurations[song.totalBars - 1];
   transport.schedule((time) => {
     masterGain.gain.setValueAtTime(1, time);
-    masterGain.gain.linearRampToValueAtTime(0, time + song.barSec);
-  }, totalTime - song.barSec);
-  transport.schedule(() => { stop(); }, totalTime + 1.5);
+    masterGain.gain.linearRampToValueAtTime(0, time + lastBarDur);
+  }, song.totalTime - lastBarDur);
+  transport.schedule(() => { stop(); }, song.totalTime + 1.5);
 
-  transport.bpm.value = BPM;
+  transport.bpm.value = BPM_CENTER;
   transport.start();
   isPlaying = true;
   isPaused = false;
