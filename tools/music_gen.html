@@ -74,7 +74,7 @@ function rngInt(min, max) { return min + Math.floor(rng() * (max - min + 1)); }
 function pick(arr) { return arr[Math.floor(rng() * arr.length)]; }
 
 // ─── Constants ────────────────────────────────────────────────────────────
-const BPM = 122;
+const BPM = 128;
 const KEY_POOL = ['C', 'D', 'E', 'F', 'G', 'A'];
 const VOICE_RANGE = ['C3', 'C5'];
 const STRUCTURE_NAMES = ['Standard', 'Slow Burn', 'Energetic', 'Minimal', 'Epic'];
@@ -331,7 +331,7 @@ function generateSong(seed) {
     });
 
     // ── Bass: chord root, one octave below ──
-    if (energy >= 0.2) {
+    if (energy >= 0.15) {
       const rootNote = bar.voiced[0];
       const rootMidi = Tonal.Note.midi(rootNote);
       const bassNote = Tonal.Note.fromMidi(rootMidi - 12);
@@ -360,7 +360,7 @@ function generateSong(seed) {
     }
 
     // ── Drums: gated by energy ──
-    if (energy >= 0.4) {
+    if (energy >= 0.3) {
       const kickPat  = KICK_PATTERNS[level][drumChoices[level]];
       const hatPat   = HAT_PATTERNS[level][drumChoices[level]];
       const snarePat = SNARE_PATTERNS[level][drumChoices[level]];
@@ -369,12 +369,12 @@ function generateSong(seed) {
         const t = barTime + step * stepSec;
         if (kickPat[step])  kickEvents.push({ time: t });
         if (hatPat[step])   hatEvents.push({ time: t });
-        if (energy >= 0.6 && snarePat[step]) snareEvents.push({ time: t });
+        if (energy >= 0.5 && snarePat[step]) snareEvents.push({ time: t });
       }
     }
 
-    // ── Arp: energy >= 0.6 ──
-    if (energy >= 0.6) {
+    // ── Arp: energy >= 0.45 ──
+    if (energy >= 0.45) {
       // Build chord notes one octave up from voicing
       const arpNotes = bar.voiced.map(n => {
         const midi = Tonal.Note.midi(n);
@@ -392,8 +392,8 @@ function generateSong(seed) {
       }
     }
 
-    // ── Melody: energy >= 0.8 ──
-    if (energy >= 0.8) {
+    // ── Melody: energy >= 0.7 ──
+    if (energy >= 0.7) {
       // Vary motif every 2 bars
       if (melodyStepCounter > 0 && melodyStepCounter % 16 === 0) {
         currentMotif = rng() < 0.3 ? baseMotif : varyMotif(baseMotif, 0.3);
@@ -521,71 +521,71 @@ async function play(seed) {
   }
 
   // Create instruments + effects
-  // Pad
-  padChorus = new Tone.Chorus({ frequency: 0.5, delayTime: 3.5, depth: 0.7, wet: 0.4 }).start();
-  padFilter = new Tone.Filter({ frequency: 1800, type: 'lowpass', rolloff: -12 });
-  padReverb = new Tone.Reverb({ decay: 4, wet: 0.5 });
+  // Pad — background texture, not lead
+  padChorus = new Tone.Chorus({ frequency: 0.4, delayTime: 3.5, depth: 0.5, wet: 0.3 }).start();
+  padFilter = new Tone.Filter({ frequency: 1200, type: 'lowpass', rolloff: -12 });
+  padReverb = new Tone.Reverb({ decay: 3, wet: 0.25 });
   pad = new Tone.PolySynth(Tone.Synth, {
-    oscillator: { type: 'fatsawtooth', count: 3, spread: 30 },
-    envelope: { attack: 0.8, decay: 0.3, sustain: 0.7, release: 2.0 },
-    volume: -10,
+    oscillator: { type: 'fatsawtooth', count: 2, spread: 15 },
+    envelope: { attack: 0.3, decay: 0.2, sustain: 0.4, release: 0.8 },
+    volume: -18,
   });
   pad.chain(padChorus, padFilter, padReverb, Tone.getDestination());
 
-  // Bass
-  bassFilter = new Tone.Filter({ frequency: 600, type: 'lowpass', rolloff: -12 });
+  // Bass — punchy sawtooth
+  bassFilter = new Tone.Filter({ frequency: 800, type: 'lowpass', rolloff: -12 });
   bass = new Tone.MonoSynth({
-    oscillator: { type: 'triangle' },
-    envelope: { attack: 0.01, decay: 0.3, sustain: 0.6, release: 0.4 },
-    filterEnvelope: { attack: 0.01, decay: 0.1, sustain: 0.5, release: 0.3, baseFrequency: 200, octaves: 2 },
-    volume: -6,
+    oscillator: { type: 'sawtooth' },
+    envelope: { attack: 0.005, decay: 0.2, sustain: 0.5, release: 0.3 },
+    filterEnvelope: { attack: 0.005, decay: 0.08, sustain: 0.4, release: 0.2, baseFrequency: 150, octaves: 2.5 },
+    volume: -3,
   });
   bass.chain(bassFilter, Tone.getDestination());
 
-  // Kick
+  // Kick — heavy EDM kick
   kick = new Tone.MembraneSynth({
     pitchDecay: 0.05,
     octaves: 6,
-    envelope: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.3 },
-    volume: -4,
+    envelope: { attack: 0.001, decay: 0.35, sustain: 0, release: 0.3 },
+    volume: -1,
   });
   kick.toDestination();
 
-  // Snare
+  // Snare — punchy
   snareFilter = new Tone.Filter({ frequency: 1200, type: 'highpass' });
   snare = new Tone.NoiseSynth({
     noise: { type: 'white' },
-    envelope: { attack: 0.001, decay: 0.12, sustain: 0, release: 0.05 },
-    volume: -10,
+    envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.05 },
+    volume: -6,
   });
   snare.chain(snareFilter, Tone.getDestination());
 
-  // Hi-hat
+  // Hi-hat — crisp
   hatFilter = new Tone.Filter({ frequency: 8000, type: 'highpass' });
   hat = new Tone.NoiseSynth({
     noise: { type: 'white' },
-    envelope: { attack: 0.001, decay: 0.03, sustain: 0, release: 0.01 },
-    volume: -14,
+    envelope: { attack: 0.001, decay: 0.04, sustain: 0, release: 0.01 },
+    volume: -10,
   });
   hat.chain(hatFilter, Tone.getDestination());
 
-  // Arp
-  arpFilter = new Tone.Filter({ frequency: 2500, type: 'lowpass' });
-  arpReverb = new Tone.Reverb({ decay: 1.5, wet: 0.3 });
+  // Arp — sharp electronic square
+  arpFilter = new Tone.Filter({ frequency: 3000, type: 'lowpass' });
+  arpReverb = new Tone.Reverb({ decay: 1, wet: 0.2 });
   arp = new Tone.PolySynth(Tone.Synth, {
-    oscillator: { type: 'triangle' },
-    envelope: { attack: 0.005, decay: 0.15, sustain: 0.1, release: 0.2 },
-    volume: -12,
+    oscillator: { type: 'square' },
+    envelope: { attack: 0.003, decay: 0.1, sustain: 0.05, release: 0.15 },
+    volume: -8,
   });
   arp.chain(arpFilter, arpReverb, Tone.getDestination());
 
-  // Melody
-  melodyFilter = new Tone.Filter({ frequency: 1800, type: 'lowpass' });
-  melodyReverb = new Tone.Reverb({ decay: 2, wet: 0.4 });
+  // Melody — cutting sawtooth lead
+  melodyFilter = new Tone.Filter({ frequency: 2200, type: 'lowpass' });
+  melodyReverb = new Tone.Reverb({ decay: 1.5, wet: 0.3 });
   melody = new Tone.Synth({
-    oscillator: { type: 'sine' },
-    envelope: { attack: 0.02, decay: 0.2, sustain: 0.3, release: 0.5 },
-    volume: -8,
+    oscillator: { type: 'sawtooth' },
+    envelope: { attack: 0.01, decay: 0.15, sustain: 0.25, release: 0.3 },
+    volume: -6,
   });
   melody.chain(melodyFilter, melodyReverb, Tone.getDestination());
 
@@ -707,10 +707,11 @@ function pause() {
 
 function getInstrumentsForEnergy(energy) {
   const instruments = ['pad'];
-  if (energy >= 0.2) instruments.push('bass');
-  if (energy >= 0.4) instruments.push('kick', 'hat');
-  if (energy >= 0.6) instruments.push('snare', 'arp');
-  if (energy >= 0.8) instruments.push('melody');
+  if (energy >= 0.15) instruments.push('bass');
+  if (energy >= 0.3) instruments.push('kick', 'hat');
+  if (energy >= 0.45) instruments.push('arp');
+  if (energy >= 0.5) instruments.push('snare');
+  if (energy >= 0.7) instruments.push('melody');
   return instruments;
 }
 
