@@ -20,7 +20,7 @@ Three.js (rendering) + IWER (WebXR emulation in browser) + Web Audio API (proced
 
 ## IWER
 
-`@iwer/devui` is removed — do not add it back. It pulls in React and is incompatible with this plain JS project.
+`@iwer/devui` is removed — do not add it back. It pulls in React and is incompatible with this project.
 
 IWER emulates the Quest WebXR runtime in the browser. Initialized before any WebXR calls:
 

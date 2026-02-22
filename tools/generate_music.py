@@ -19,11 +19,11 @@ from transformers import AutoProcessor, MusicgenForConditionalGeneration
 SONGS_DIR = Path(__file__).resolve().parent.parent / "songs"
 
 PROMPTS = [
-    "energetic electronic beat saber soundtrack, driving bass, 128 BPM, synth leads, dark atmosphere",
-    "fast paced EDM rhythm game music, 140 BPM, heavy drums, pulsing synths, cyberpunk",
-    "intense drum and bass, 130 BPM, aggressive synths, deep bass, futuristic",
-    "dark techno rhythm game track, 125 BPM, industrial percussion, hypnotic bassline",
-    "high energy trance, 138 BPM, euphoric melodies, pounding kick drum, arpeggiated synths",
+    "minimal electronic, slow build, deep sine bass, sparse drums, dark ambient atmosphere, 120 BPM, smooth and hypnotic",
+    "downtempo electronic, gentle progression, warm pads, soft kick, subtle arpeggios, 110 BPM, spacious and moody",
+    "minimal techno, stripped back, pulsing bassline, light percussion, slow evolving texture, 118 BPM, meditative",
+    "ambient electronic with a steady beat, soft synth layers, deep bass, minimal drums, gradual build, 115 BPM",
+    "chillout electronic, smooth flowing melody, gentle rhythm, warm bass, sparse arrangement, 112 BPM, atmospheric",
 ]
 
 
@@ -36,10 +36,12 @@ def generate(count: int, duration: int) -> None:
         print(f"GPU: {torch.cuda.get_device_name(0)}")
         print(f"VRAM: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
 
-    print("\nLoading MusicGen medium model (first run downloads ~3.3 GB)...")
+    model_id = "facebook/musicgen-stereo-medium"  # 1.5B params, stereo, ~3.8 GB safetensors
+
+    print(f"\nLoading MusicGen model: {model_id} (first run downloads weights)...")
     t0 = time.time()
-    processor = AutoProcessor.from_pretrained("facebook/musicgen-medium")
-    model = MusicgenForConditionalGeneration.from_pretrained("facebook/musicgen-medium")
+    processor = AutoProcessor.from_pretrained(model_id)
+    model = MusicgenForConditionalGeneration.from_pretrained(model_id, torch_dtype=torch.float16)
     model = model.to(device)
     print(f"Model loaded in {time.time() - t0:.1f}s\n")
 
@@ -47,10 +49,13 @@ def generate(count: int, duration: int) -> None:
     # MusicGen generates ~50 tokens/sec of audio by default
     max_new_tokens = int(duration * 50)
 
+    existing = list(SONGS_DIR.glob("song_*.wav"))
+    next_num = max((int(p.stem.split("_")[1]) for p in existing), default=0) + 1
+
     prompts = PROMPTS[:count]
 
     for i, prompt in enumerate(prompts):
-        name = f"song_{i + 1:03d}"
+        name = f"song_{next_num + i:03d}"
         print(f"[{i + 1}/{count}] Generating: {prompt[:60]}...")
 
         t0 = time.time()
@@ -60,7 +65,7 @@ def generate(count: int, duration: int) -> None:
             audio_values = model.generate(**inputs, max_new_tokens=max_new_tokens)
 
         elapsed = time.time() - t0
-        audio = audio_values[0, 0].cpu().numpy()
+        audio = audio_values[0, 0].cpu().float().numpy()
 
         wav_path = SONGS_DIR / f"{name}.wav"
         sf.write(str(wav_path), audio, sample_rate)
