@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Music Generator v2</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a12; color: #c8c8e0; font-family: monospace; padding: 24px; }
+  h2 { color: #a080d0; margin-bottom: 16px; font-size: 18px; }
+  button {
+    padding: 10px 24px; background: #2a1848; color: #c8b0f0; border: 1px solid #4a2878;
+    border-radius: 4px; font-family: monospace; font-size: 14px; cursor: pointer; margin-right: 8px;
+  }
+  button:hover { background: #3a2060; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  .controls { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .controls label { font-size: 12px; color: #8878a8; }
+  .controls input[type=text] {
+    background: #1a1830; color: #c8c8e0; border: 1px solid #2a2848;
+    border-radius: 3px; padding: 6px 10px; font-family: monospace; font-size: 13px; width: 100px;
+  }
+  #status {
+    color: #8070a0; font-size: 13px; margin-bottom: 16px; min-height: 18px;
+    padding: 8px 12px; background: #0e0e1a; border: 1px solid #1a1a30; border-radius: 4px;
+  }
+  #log {
+    background: #0e0e1a; border: 1px solid #1a1a30; border-radius: 4px;
+    padding: 12px; font-size: 11px; white-space: pre; max-height: 500px; overflow-y: auto;
+  }
+  .bar-line { padding: 2px 4px; border-radius: 2px; }
+  .bar-line.active { background: #2a1848; color: #e0c0ff; }
+  .section-header { color: #6a50a0; padding: 4px 4px 2px; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<h2>Music Generator v2</h2>
+
+<div class="controls">
+  <button id="btn-play" onclick="handlePlay()">Play</button>
+  <button id="btn-pause" onclick="handlePause()" disabled>Pause</button>
+  <button id="btn-new" onclick="handleNewSeed()">New Seed</button>
+  <label>Seed:</label>
+  <input type="text" id="seed-input" placeholder="random">
+</div>
+<div id="status">Stopped</div>
+<div id="log"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/tonal/browser/tonal.min.js"></script>
+<script src="https://unpkg.com/tone"></script>
+<script>
+
+// ─── DOM refs ─────────────────────────────────────────────────────────────
+const logEl = document.getElementById('log');
+const statusEl = document.getElementById('status');
+const btnPlay = document.getElementById('btn-play');
+const btnPause = document.getElementById('btn-pause');
+const seedInput = document.getElementById('seed-input');
+
+function log(msg) {
+  const div = document.createElement('div');
+  div.textContent = msg;
+  div.style.padding = '2px 4px';
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+function clearLog() { logEl.innerHTML = ''; }
+
+// ─── Seeded RNG ───────────────────────────────────────────────────────────
+let _seed = 42;
+function seedRng(s) { _seed = s; }
+function rng() { _seed = (_seed * 16807) % 2147483647; return (_seed - 1) / 2147483646; }
+function rngInt(min, max) { return min + Math.floor(rng() * (max - min + 1)); }
+function pick(arr) { return arr[Math.floor(rng() * arr.length)]; }
+
+// ─── Constants ────────────────────────────────────────────────────────────
+const BPM = 128;
+const KEY_POOL = ['C', 'D', 'E', 'F', 'G', 'A'];
+const VOICE_RANGE = ['C3', 'C5'];
+const STRUCTURE_NAMES = ['Standard', 'Slow Burn', 'Energetic', 'Minimal', 'Epic'];
+const MIN_VEL = 0.03; // below this, skip scheduling the event
+
+// ─── Song Structures ──────────────────────────────────────────────────────
+const STRUCTURES = [
+  [
+    { name:'intro', bars:4, energy:0.15 }, { name:'build', bars:4, energy:0.45 },
+    { name:'main',  bars:8, energy:0.75 }, { name:'break', bars:4, energy:0.3 },
+    { name:'peak',  bars:8, energy:1.0 },  { name:'outro', bars:4, energy:0.1 },
+  ],
+  [
+    { name:'intro', bars:4, energy:0.1 },  { name:'intro2', bars:4, energy:0.2 },
+    { name:'build', bars:4, energy:0.5 },  { name:'main',   bars:8, energy:0.75 },
+    { name:'peak',  bars:8, energy:1.0 },  { name:'outro',  bars:4, energy:0.15 },
+  ],
+  [
+    { name:'build', bars:4, energy:0.5 },  { name:'main',  bars:8, energy:0.8 },
+    { name:'peak',  bars:8, energy:1.0 },  { name:'break', bars:4, energy:0.35 },
+    { name:'peak2', bars:8, energy:0.95 }, { name:'outro', bars:4, energy:0.2 },
+  ],
+  [
+    { name:'intro', bars:4, energy:0.15 }, { name:'build', bars:4, energy:0.4 },
+    { name:'main',  bars:8, energy:0.65 }, { name:'build2',bars:4, energy:0.5 },
+    { name:'main2', bars:8, energy:0.7 },  { name:'outro', bars:4, energy:0.1 },
+  ],
+  [
+    { name:'intro', bars:4, energy:0.1 },  { name:'build', bars:4, energy:0.4 },
+    { name:'build2',bars:4, energy:0.6 },  { name:'main',  bars:8, energy:0.85 },
+    { name:'peak',  bars:8, energy:1.0 },  { name:'peak2', bars:8, energy:0.95 },
+  ],
+];
+
+// ─── Markov Transition Matrix ─────────────────────────────────────────────
+const MARKOV = {
+  'Im':    [['bIII', 2], ['IVm', 3], ['Vm', 1], ['bVI', 3], ['bVII', 2]],
+  'bIII':  [['Im', 1],   ['IVm', 3], ['bVI', 2], ['bVII', 3]],
+  'IVm':   [['Im', 2],   ['bIII', 1], ['Vm', 2], ['bVI', 1], ['bVII', 3]],
+  'Vm':    [['Im', 3],   ['IVm', 1], ['bVI', 3]],
+  'bVI':   [['Im', 1],   ['bIII', 2], ['IVm', 2], ['bVII', 3]],
+  'bVII':  [['Im', 3],   ['bIII', 2], ['IVm', 1], ['bVI', 2]],
+};
+
+function markovNext(current) {
+  const transitions = MARKOV[current];
+  const totalWeight = transitions.reduce((sum, [, w]) => sum + w, 0);
+  let r = rng() * totalWeight;
+  for (const [target, weight] of transitions) {
+    r -= weight;
+    if (r <= 0) return target;
+  }
+  return transitions[transitions.length - 1][0];
+}
+
+function generatePhrase() {
+  const walk = ['Im'];
+  for (let i = 1; i < 4; i++) walk.push(markovNext(walk[i - 1]));
+  return walk;
+}
+
+// ─── Voice Leading ────────────────────────────────────────────────────────
+function minimalMovement(voicings, lastVoicing) {
+  if (!lastVoicing || !lastVoicing.length) return voicings[0];
+  const movement = (v) =>
+    v.reduce((sum, note, i) => {
+      const prev = i < lastVoicing.length ? lastVoicing[i] : lastVoicing[lastVoicing.length - 1];
+      return sum + Math.abs((Tonal.Note.midi(note) || 0) - (Tonal.Note.midi(prev) || 0));
+    }, 0);
+  return voicings.slice().sort((a, b) => movement(a) - movement(b))[0];
+}
+
+// ─── Drum Patterns (8 steps per bar) ──────────────────────────────────────
+const KICK_PATTERNS = {
+  low:  [ [1,0,0,0, 0,0,0,0], [1,0,0,0, 0,0,1,0], [0,0,0,0, 1,0,0,0] ],
+  mid:  [ [1,0,0,0, 1,0,0,0], [1,0,0,0, 0,0,1,0], [1,0,1,0, 0,0,0,0] ],
+  high: [ [1,0,0,0, 1,0,1,0], [1,0,1,0, 0,0,1,0], [1,0,0,1, 1,0,0,0] ],
+  peak: [ [1,0,1,0, 1,0,1,0], [1,0,0,1, 1,0,1,0], [1,1,0,0, 1,0,1,0] ],
+};
+const SNARE_PATTERNS = {
+  low:  [ [0,0,0,0, 1,0,0,0], [0,0,0,0, 0,0,1,0], [0,0,0,0, 1,0,0,0] ],
+  mid:  [ [0,0,0,0, 1,0,0,0], [0,0,0,0, 1,0,0,1], [0,0,1,0, 0,0,1,0] ],
+  high: [ [0,0,0,0, 1,0,0,0], [0,0,0,0, 1,0,0,1], [0,0,1,0, 1,0,0,0] ],
+  peak: [ [0,0,0,0, 1,0,0,1], [0,0,1,0, 1,0,0,1], [0,0,0,1, 1,0,1,0] ],
+};
+const HAT_PATTERNS = {
+  low:  [ [1,0,0,0, 0,0,0,0], [1,0,0,0, 1,0,0,0], [0,0,1,0, 0,0,1,0] ],
+  mid:  [ [1,0,1,0, 1,0,1,0], [1,0,0,1, 1,0,0,1], [1,1,0,0, 1,1,0,0] ],
+  high: [ [1,1,1,1, 1,1,1,0], [1,1,1,0, 1,1,1,1], [1,0,1,1, 1,0,1,1] ],
+  peak: [ [1,1,1,1, 1,1,1,1], [1,1,1,1, 1,0,1,1], [1,0,1,1, 1,1,1,0] ],
+};
+
+function energyLevel(energy) {
+  if (energy < 0.25) return 'low';
+  if (energy < 0.55) return 'mid';
+  if (energy < 0.85) return 'high';
+  return 'peak';
+}
+
+// ─── Arp Patterns ─────────────────────────────────────────────────────────
+const ARP_STYLES = ['up', 'down', 'updown', 'random'];
+
+function generateArpPattern(chordNotes, style, energy) {
+  const steps = [];
+  const len = chordNotes.length;
+  for (let step = 0; step < 8; step++) {
+    if (rng() > (0.2 + energy * 0.5)) { steps.push(null); continue; }
+    let idx;
+    if (style === 'up') idx = step % len;
+    else if (style === 'down') idx = (len - 1) - (step % len);
+    else if (style === 'updown') {
+      const cycle = Math.max(1, len * 2 - 2);
+      const pos = step % cycle;
+      idx = pos < len ? pos : cycle - pos;
+    } else {
+      idx = Math.floor(rng() * len);
+    }
+    steps.push(chordNotes[Math.min(idx, len - 1)]);
+  }
+  return steps;
+}
+
+// ─── Melody Motif ─────────────────────────────────────────────────────────
+function generateMotif(scaleNotes, length) {
+  const motif = [];
+  let degree = rngInt(0, scaleNotes.length - 1);
+  for (let i = 0; i < length; i++) {
+    motif.push(degree);
+    if (rng() < 0.7) degree += rng() < 0.5 ? 1 : -1;
+    else degree += rngInt(-2, 2);
+    degree = Math.max(0, Math.min(scaleNotes.length * 2 - 1, degree));
+  }
+  return motif;
+}
+
+function varyMotif(motif, amount) {
+  return motif.map(d => rng() < amount ? d + rngInt(-1, 1) : d);
+}
+
+function degreeToNote(scaleNotes, degree, octaveBase) {
+  const len = scaleNotes.length;
+  const oct = Math.floor(degree / len);
+  const idx = ((degree % len) + len) % len;
+  return scaleNotes[idx] + (octaveBase + oct);
+}
+
+// ─── Energy Curve (smooth, Perlin-varied) ─────────────────────────────────
+
+function buildEnergyCurve(structure) {
+  // Raw energy per bar from section definitions
+  const raw = [];
+  let sectionNames = [];
+  for (const section of structure) {
+    for (let b = 0; b < section.bars; b++) {
+      raw.push(section.energy);
+      sectionNames.push(section.name);
+    }
+  }
+
+  // 3 passes of neighbor averaging for smooth transitions
+  function smooth(arr) {
+    return arr.map((e, i) => {
+      const prev = i > 0 ? arr[i - 1] : e;
+      const next = i < arr.length - 1 ? arr[i + 1] : e;
+      return prev * 0.15 + e * 0.7 + next * 0.15;
+    });
+  }
+  let curve = raw;
+  for (let pass = 0; pass < 3; pass++) curve = smooth(curve);
+
+  // Add seeded Perlin-like noise for organic breathing
+  const noise = [];
+  for (let i = 0; i <= raw.length; i++) noise.push(rng());
+  curve = curve.map((e, i) => {
+    // Cubic-interpolated noise at this bar
+    const fi = Math.floor(i * 0.5); // sample noise at half-bar frequency
+    const frac = (i * 0.5) - fi;
+    const t = frac * frac * (3 - 2 * frac); // smoothstep
+    const a = noise[Math.min(fi, noise.length - 1)];
+    const b = noise[Math.min(fi + 1, noise.length - 1)];
+    const n = (a + (b - a) * t - 0.5) * 0.1; // ±0.05
+    return Math.max(0.01, Math.min(1, e + n));
+  });
+
+  return { curve, sectionNames };
+}
+
+// ─── Sigmoid Instrument Activation ────────────────────────────────────────
+
+function sigmoid(x) { return 1 / (1 + Math.exp(-x)); }
+
+// Instrument orderings: seed picks one. Determines which instruments lead.
+// First instrument gets lowest threshold (most present), last gets highest.
+const ORDERINGS = [
+  ['pad', 'bass', 'hat', 'kick', 'arp', 'snare', 'melody'],   // Classic
+  ['arp', 'hat', 'pad', 'bass', 'kick', 'snare', 'melody'],   // Arp lead
+  ['bass', 'kick', 'hat', 'pad', 'snare', 'arp', 'melody'],   // Bass heavy
+  ['hat', 'pad', 'bass', 'kick', 'arp', 'snare', 'melody'],   // Rhythm first
+  ['melody', 'pad', 'arp', 'bass', 'hat', 'kick', 'snare'],   // Melodic
+];
+const ORDERING_NAMES = ['Classic', 'Arp Lead', 'Bass Heavy', 'Rhythm First', 'Melodic'];
+
+// Activation thresholds per slot position (0=first to appear, 6=last)
+const SLOT_THRESHOLDS = [0.05, 0.18, 0.30, 0.42, 0.55, 0.68, 0.82];
+// Sigmoid smoothness per slot (wider for early instruments, narrower for late)
+const SLOT_SMOOTHNESS = [0.14, 0.13, 0.12, 0.11, 0.10, 0.09, 0.08];
+
+function computeVolumes(energy, ordering) {
+  const vols = {};
+  for (let i = 0; i < ordering.length; i++) {
+    const inst = ordering[i];
+    vols[inst] = sigmoid((energy - SLOT_THRESHOLDS[i]) / SLOT_SMOOTHNESS[i]);
+  }
+  return vols;
+}
+
+function dominantInstruments(vols) {
+  return Object.entries(vols)
+    .filter(([, v]) => v > 0.5)
+    .sort((a, b) => b[1] - a[1])
+    .map(([name]) => name);
+}
+
+// ─── Song Generation ──────────────────────────────────────────────────────
+
+function generateSong(seed) {
+  seedRng(seed);
+
+  // Pick key
+  const tonic = pick(KEY_POOL);
+
+  // Pick structure
+  const structIdx = Math.floor(rng() * STRUCTURES.length);
+  const structure = STRUCTURES[structIdx];
+  const structName = STRUCTURE_NAMES[structIdx];
+
+  // Generate 4-chord Markov phrase
+  const phrase = generatePhrase();
+  const chordSymbols = Tonal.Progression.fromRomanNumerals(tonic, phrase);
+
+  // Voice chords with minimal movement
+  const dictionary = Tonal.VoicingDictionary.triads;
+  let lastVoicing = null;
+  const phraseVoicings = [];
+  for (const symbol of chordSymbols) {
+    const candidates = Tonal.Voicing.search(symbol, VOICE_RANGE, dictionary);
+    if (candidates.length === 0) {
+      const v = Tonal.Voicing.get(symbol, VOICE_RANGE, dictionary, Tonal.VoiceLeading.topNoteDiff, lastVoicing);
+      phraseVoicings.push(v);
+      lastVoicing = v;
+    } else {
+      const chosen = minimalMovement(candidates, lastVoicing);
+      phraseVoicings.push(chosen);
+      lastVoicing = chosen;
+    }
+  }
+
+  // Scale notes for melody
+  const scaleNotes = Tonal.Scale.get(tonic + ' minor').notes;
+
+  // Per-song random choices
+  const arpStyle = pick(ARP_STYLES);
+  const motifLen = pick([4, 5, 6, 8]);
+  const baseMotif = generateMotif(scaleNotes, motifLen);
+  const drumChoices = {
+    low: rngInt(0, 2), mid: rngInt(0, 2),
+    high: rngInt(0, 2), peak: rngInt(0, 2),
+  };
+
+  // Pick instrument ordering
+  const orderIdx = Math.floor(rng() * ORDERINGS.length);
+  const ordering = ORDERINGS[orderIdx];
+  const orderName = ORDERING_NAMES[orderIdx];
+
+  // Build smooth energy curve
+  const { curve: energyCurve, sectionNames } = buildEnergyCurve(structure);
+  const totalBars = energyCurve.length;
+
+  // Build bar data
+  const bars = [];
+  for (let i = 0; i < totalBars; i++) {
+    const phraseIdx = i % 4;
+    bars.push({
+      bar: i,
+      section: sectionNames[i],
+      energy: energyCurve[i],
+      chordSymbol: chordSymbols[phraseIdx],
+      numeral: phrase[phraseIdx],
+      voiced: phraseVoicings[phraseIdx],
+    });
+  }
+
+  // Melody rhythm pattern
+  const melodyRhythm = [];
+  for (let i = 0; i < motifLen; i++) melodyRhythm.push(i === 0 || rng() < 0.5);
+
+  // Pre-compute ALL events
+  const beatSec = 60 / BPM;
+  const stepSec = beatSec / 2;
+  const barSec = beatSec * 4;
+
+  const padEvents = [];
+  const bassEvents = [];
+  const kickEvents = [];
+  const snareEvents = [];
+  const hatEvents = [];
+  const arpEvents = [];
+  const melodyEvents = [];
+
+  let currentMotif = baseMotif;
+  let melodyStepCounter = 0;
+
+  for (const bar of bars) {
+    const barTime = bar.bar * barSec;
+    const energy = bar.energy;
+    const level = energyLevel(energy);
+    const vols = computeVolumes(energy, ordering);
+
+    // Check for transition (energy about to change significantly)
+    const nextEnergy = bar.bar < totalBars - 1 ? energyCurve[bar.bar + 1] : energy;
+    const isTransition = Math.abs(nextEnergy - energy) > 0.06;
+    const isPhraseLast = (bar.bar + 1) % 4 === 0;
+
+    // ── Pad: overlapping duration for crossfade ──
+    if (vols.pad > MIN_VEL) {
+      padEvents.push({
+        time: barTime,
+        notes: bar.voiced,
+        duration: barSec * 1.1,
+        vel: vols.pad,
+      });
+    }
+
+    // ── Bass: rhythm varies with energy ──
+    if (vols.bass > MIN_VEL) {
+      const rootNote = bar.voiced[0];
+      const rootMidi = Tonal.Note.midi(rootNote);
+      const bassNote = Tonal.Note.fromMidi(rootMidi - 12);
+
+      if (energy < 0.4) {
+        bassEvents.push({ time: barTime, note: bassNote, duration: barSec * 0.9, vel: vols.bass });
+      } else if (energy < 0.7) {
+        bassEvents.push({ time: barTime, note: bassNote, duration: beatSec * 1.8, vel: vols.bass });
+        bassEvents.push({ time: barTime + beatSec * 2, note: bassNote, duration: beatSec * 1.8, vel: vols.bass });
+      } else {
+        const chordMidis = bar.voiced.map(n => Tonal.Note.midi(n) - 12);
+        for (let step = 0; step < 8; step++) {
+          if (rng() < 0.7) {
+            const midi = pick(chordMidis);
+            bassEvents.push({
+              time: barTime + step * stepSec,
+              note: Tonal.Note.fromMidi(midi),
+              duration: stepSec * 0.8,
+              vel: vols.bass,
+            });
+          }
+        }
+      }
+    }
+
+    // ── Drums: pattern selected by energy, velocity by sigmoid ──
+    const kickPat  = KICK_PATTERNS[level][drumChoices[level]];
+    const snarePat = SNARE_PATTERNS[level][drumChoices[level]];
+    const hatPat   = HAT_PATTERNS[level][drumChoices[level]];
+
+    for (let step = 0; step < 8; step++) {
+      const t = barTime + step * stepSec;
+      if (kickPat[step] && vols.kick > MIN_VEL)
+        kickEvents.push({ time: t, vel: vols.kick });
+      if (snarePat[step] && vols.snare > MIN_VEL)
+        snareEvents.push({ time: t, vel: vols.snare });
+      if (hatPat[step] && vols.hat > MIN_VEL)
+        hatEvents.push({ time: t, vel: vols.hat });
+    }
+
+    // Drum fill at phrase boundary before significant energy change
+    if (isTransition && isPhraseLast && vols.snare > 0.1) {
+      for (let step = 5; step < 8; step++) {
+        snareEvents.push({
+          time: barTime + step * stepSec,
+          vel: vols.snare * (0.5 + (step - 5) * 0.2),
+        });
+      }
+    }
+
+    // ── Arp ──
+    if (vols.arp > MIN_VEL) {
+      const arpNotes = bar.voiced.map(n => Tonal.Note.fromMidi(Tonal.Note.midi(n) + 12));
+      const pattern = generateArpPattern(arpNotes, arpStyle, energy);
+      for (let step = 0; step < 8; step++) {
+        if (pattern[step] !== null) {
+          arpEvents.push({
+            time: barTime + step * stepSec,
+            note: pattern[step],
+            duration: stepSec * 0.5,
+            vel: vols.arp,
+          });
+        }
+      }
+    }
+
+    // ── Melody ──
+    if (vols.melody > MIN_VEL) {
+      if (melodyStepCounter > 0 && melodyStepCounter % 16 === 0) {
+        currentMotif = rng() < 0.3 ? baseMotif : varyMotif(baseMotif, 0.3);
+      }
+      for (let step = 0; step < 8; step++) {
+        const motifIdx = melodyStepCounter % motifLen;
+        melodyStepCounter++;
+        if (!melodyRhythm[motifIdx]) continue;
+        if (rng() > 0.4 + energy * 0.4) continue;
+        const note = degreeToNote(scaleNotes, currentMotif[motifIdx], 5);
+        melodyEvents.push({
+          time: barTime + step * stepSec,
+          note: note,
+          duration: stepSec * 1.2,
+          vel: vols.melody,
+        });
+      }
+    } else {
+      melodyStepCounter += 8; // keep counter advancing for determinism
+    }
+  }
+
+  return {
+    seed, tonic, structName, structIdx, orderName, ordering, phrase, chordSymbols,
+    phraseVoicings, structure, bars, totalBars, energyCurve,
+    padEvents, bassEvents, kickEvents, snareEvents, hatEvents, arpEvents, melodyEvents,
+    barSec,
+  };
+}
+
+// ─── Tone.js State ────────────────────────────────────────────────────────
+
+let pad = null, bass = null, kick = null, snare = null, hat = null, arp = null, melody = null;
+let padChorus = null, padFilter = null, padReverb = null;
+let bassFilter = null;
+let arpFilter = null, arpReverb = null;
+let melodyFilter = null, melodyReverb = null;
+let snareFilter = null, hatFilter = null;
+let masterGain = null;
+let parts = [];
+let highlightId = null;
+let barEls = [];
+let currentSong = null;
+let isPlaying = false;
+let isPaused = false;
+
+function disposeAudio() {
+  const transport = Tone.getTransport();
+  transport.stop();
+  transport.cancel();
+
+  for (const p of parts) { if (p) p.dispose(); }
+  parts = [];
+  if (highlightId != null) { transport.clear(highlightId); highlightId = null; }
+
+  const nodes = [pad, bass, kick, snare, hat, arp, melody,
+    padChorus, padFilter, padReverb, bassFilter,
+    arpFilter, arpReverb, melodyFilter, melodyReverb,
+    snareFilter, hatFilter, masterGain];
+  for (const n of nodes) { if (n) n.dispose(); }
+  pad = bass = kick = snare = hat = arp = melody = null;
+  padChorus = padFilter = padReverb = bassFilter = null;
+  arpFilter = arpReverb = melodyFilter = melodyReverb = null;
+  snareFilter = hatFilter = masterGain = null;
+
+  isPlaying = false;
+  isPaused = false;
+}
+
+// ─── Play / Pause / Stop ──────────────────────────────────────────────────
+
+async function play(seed) {
+  stop();
+  clearLog();
+  await Tone.start();
+
+  const song = generateSong(seed);
+  currentSong = song;
+
+  // Log header
+  log(`Seed: ${song.seed}`);
+  log(`Key: ${song.tonic} minor`);
+  log(`Structure: ${song.structName}`);
+  log(`Character: ${song.orderName} (${song.ordering.join(' \u2192 ')})`);
+  log(`Phrase: ${song.phrase.join(' \u2192 ')}`);
+  log(`Chords: ${song.chordSymbols.join(' \u2192 ')}`);
+  log(`BPM: ${BPM}  Bars: ${song.totalBars}`);
+  log('');
+
+  // Log per-bar details
+  barEls = [];
+  let lastSection = '';
+  for (const bar of song.bars) {
+    if (bar.section !== lastSection) {
+      const hdr = document.createElement('div');
+      hdr.className = 'section-header';
+      const vols = computeVolumes(bar.energy, song.ordering);
+      const dominant = dominantInstruments(vols);
+      hdr.textContent = `\u2500\u2500 ${bar.section} \u2500`;
+      logEl.appendChild(hdr);
+      lastSection = bar.section;
+    }
+
+    const eBar = '\u2588'.repeat(Math.round(bar.energy * 10)).padEnd(10, '\u2591');
+    const vols = computeVolumes(bar.energy, song.ordering);
+    const active = dominantInstruments(vols).join(' ');
+    const line = `Bar ${String(bar.bar).padStart(2)}: ${eBar} ${bar.numeral.padEnd(5)} ${bar.chordSymbol.padEnd(6)} ${active}`;
+    const div = document.createElement('div');
+    div.className = 'bar-line';
+    div.textContent = line;
+    logEl.appendChild(div);
+    barEls.push(div);
+  }
+
+  // Master gain
+  masterGain = new Tone.Gain(1).toDestination();
+
+  // ── Instruments ──
+
+  padChorus = new Tone.Chorus({ frequency: 0.4, delayTime: 3.5, depth: 0.5, wet: 0.3 }).start();
+  padFilter = new Tone.Filter({ frequency: 1200, type: 'lowpass', rolloff: -12 });
+  padReverb = new Tone.Reverb({ decay: 3, wet: 0.25 });
+  pad = new Tone.PolySynth(Tone.Synth, {
+    oscillator: { type: 'fatsawtooth', count: 2, spread: 15 },
+    envelope: { attack: 0.3, decay: 0.2, sustain: 0.4, release: 0.8 },
+    volume: -10,
+  });
+  pad.chain(padChorus, padFilter, padReverb, masterGain);
+
+  bassFilter = new Tone.Filter({ frequency: 800, type: 'lowpass', rolloff: -12 });
+  bass = new Tone.MonoSynth({
+    oscillator: { type: 'sawtooth' },
+    envelope: { attack: 0.005, decay: 0.2, sustain: 0.5, release: 0.3 },
+    filterEnvelope: { attack: 0.005, decay: 0.08, sustain: 0.4, release: 0.2, baseFrequency: 150, octaves: 2.5 },
+    volume: -4,
+  });
+  bass.chain(bassFilter, masterGain);
+
+  kick = new Tone.MembraneSynth({
+    pitchDecay: 0.05, octaves: 6,
+    envelope: { attack: 0.001, decay: 0.35, sustain: 0, release: 0.3 },
+    volume: -2,
+  });
+  kick.connect(masterGain);
+
+  snareFilter = new Tone.Filter({ frequency: 1200, type: 'highpass' });
+  snare = new Tone.NoiseSynth({
+    noise: { type: 'white' },
+    envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.05 },
+    volume: -6,
+  });
+  snare.chain(snareFilter, masterGain);
+
+  hatFilter = new Tone.Filter({ frequency: 8000, type: 'highpass' });
+  hat = new Tone.NoiseSynth({
+    noise: { type: 'white' },
+    envelope: { attack: 0.001, decay: 0.04, sustain: 0, release: 0.01 },
+    volume: -10,
+  });
+  hat.chain(hatFilter, masterGain);
+
+  arpFilter = new Tone.Filter({ frequency: 3000, type: 'lowpass' });
+  arpReverb = new Tone.Reverb({ decay: 1, wet: 0.2 });
+  arp = new Tone.PolySynth(Tone.Synth, {
+    oscillator: { type: 'square' },
+    envelope: { attack: 0.003, decay: 0.1, sustain: 0.05, release: 0.15 },
+    volume: -8,
+  });
+  arp.chain(arpFilter, arpReverb, masterGain);
+
+  melodyFilter = new Tone.Filter({ frequency: 2200, type: 'lowpass' });
+  melodyReverb = new Tone.Reverb({ decay: 1.5, wet: 0.3 });
+  melody = new Tone.Synth({
+    oscillator: { type: 'sawtooth' },
+    envelope: { attack: 0.01, decay: 0.15, sustain: 0.25, release: 0.3 },
+    volume: -6,
+  });
+  melody.chain(melodyFilter, melodyReverb, masterGain);
+
+  // ── Schedule all events via Tone.Part ──
+
+  const padPart = new Tone.Part((time, e) => {
+    pad.triggerAttackRelease(e.notes, e.duration, time, e.vel);
+  }, song.padEvents.map(e => [e.time, e]));
+  padPart.start(0);
+  parts.push(padPart);
+
+  if (song.bassEvents.length > 0) {
+    const bassPart = new Tone.Part((time, e) => {
+      bass.triggerAttackRelease(e.note, e.duration, time, e.vel);
+    }, song.bassEvents.map(e => [e.time, e]));
+    bassPart.start(0);
+    parts.push(bassPart);
+  }
+
+  if (song.kickEvents.length > 0) {
+    const kickPart = new Tone.Part((time, e) => {
+      kick.triggerAttackRelease('C1', '8n', time, e.vel);
+    }, song.kickEvents.map(e => [e.time, e]));
+    kickPart.start(0);
+    parts.push(kickPart);
+  }
+
+  if (song.snareEvents.length > 0) {
+    const snarePart = new Tone.Part((time, e) => {
+      snare.triggerAttackRelease('16n', time, e.vel);
+    }, song.snareEvents.map(e => [e.time, e]));
+    snarePart.start(0);
+    parts.push(snarePart);
+  }
+
+  if (song.hatEvents.length > 0) {
+    const hatPart = new Tone.Part((time, e) => {
+      hat.triggerAttackRelease('32n', time, e.vel);
+    }, song.hatEvents.map(e => [e.time, e]));
+    hatPart.start(0);
+    parts.push(hatPart);
+  }
+
+  if (song.arpEvents.length > 0) {
+    const arpPart = new Tone.Part((time, e) => {
+      arp.triggerAttackRelease(e.note, e.duration, time, e.vel);
+    }, song.arpEvents.map(e => [e.time, e]));
+    arpPart.start(0);
+    parts.push(arpPart);
+  }
+
+  if (song.melodyEvents.length > 0) {
+    const melodyPart = new Tone.Part((time, e) => {
+      melody.triggerAttackRelease(e.note, e.duration, time, e.vel);
+    }, song.melodyEvents.map(e => [e.time, e]));
+    melodyPart.start(0);
+    parts.push(melodyPart);
+  }
+
+  // Bar highlighting
+  const transport = Tone.getTransport();
+  highlightId = transport.scheduleRepeat((time) => {
+    Tone.getDraw().schedule(() => {
+      const pos = transport.position;
+      const currentBar = parseInt(pos.split(':')[0], 10);
+      for (let i = 0; i < barEls.length; i++) {
+        if (i === currentBar) {
+          barEls[i].classList.add('active');
+          barEls[i].scrollIntoView({ block: 'nearest' });
+        } else {
+          barEls[i].classList.remove('active');
+        }
+      }
+    }, time);
+  }, '1m');
+
+  // Master fade on last bar
+  const totalTime = song.totalBars * song.barSec;
+  transport.schedule((time) => {
+    masterGain.gain.setValueAtTime(1, time);
+    masterGain.gain.linearRampToValueAtTime(0, time + song.barSec);
+  }, totalTime - song.barSec);
+  transport.schedule(() => { stop(); }, totalTime + 1.5);
+
+  transport.bpm.value = BPM;
+  transport.start();
+  isPlaying = true;
+  isPaused = false;
+  updateStatus(song, 'playing');
+  updateButtons();
+}
+
+function stop() {
+  disposeAudio();
+  barEls = [];
+  updateStatus(currentSong, 'stopped');
+  updateButtons();
+}
+
+function pause() {
+  const transport = Tone.getTransport();
+  if (isPaused) {
+    transport.start();
+    isPaused = false;
+    updateStatus(currentSong, 'playing');
+  } else {
+    transport.pause();
+    isPaused = true;
+    updateStatus(currentSong, 'paused');
+  }
+  updateButtons();
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────
+
+function getSeed() {
+  const val = seedInput.value.trim();
+  return val ? parseInt(val, 10) : (Date.now() % 100000);
+}
+
+function updateStatus(song, state) {
+  if (!song) { statusEl.textContent = 'Stopped'; return; }
+  statusEl.textContent = `${state.charAt(0).toUpperCase() + state.slice(1)} \u2014 seed: ${song.seed} | ${song.tonic} minor | ${song.structName} | ${song.orderName}`;
+}
+
+function updateButtons() {
+  btnPlay.disabled = isPlaying && !isPaused;
+  btnPause.disabled = !isPlaying;
+  btnPause.textContent = isPaused ? 'Resume' : 'Pause';
+}
+
+// ─── Button Handlers ──────────────────────────────────────────────────────
+
+async function handlePlay() {
+  const seed = getSeed();
+  seedInput.value = seed;
+  await play(seed);
+}
+
+function handlePause() { pause(); }
+
+async function handleNewSeed() {
+  seedInput.value = '';
+  const seed = Date.now() % 100000;
+  seedInput.value = seed;
+  await play(seed);
+}
+
+</script>
+</body>
+</html>
