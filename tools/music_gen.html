@@ -318,16 +318,23 @@ function generateSong(seed) {
     melodyRhythm.push(i === 0 || rng() < 0.5);
   }
 
+  // Pre-compute section boundary info per bar
+  const barSectionName = bars.map(b => b.section);
+  function isFirstBarOfSection(i) { return i === 0 || barSectionName[i] !== barSectionName[i - 1]; }
+  function isLastBarOfSection(i) { return i === bars.length - 1 || barSectionName[i] !== barSectionName[i + 1]; }
+
   for (const bar of bars) {
     const barTime = bar.bar * barSec;
     const energy = bar.energy;
     const level = energyLevel(energy);
+    const isFirst = isFirstBarOfSection(bar.bar);
+    const isLast = isLastBarOfSection(bar.bar);
 
-    // ── Pad: always (gated by energy < 0.2 still plays pad) ──
+    // ── Pad: overlap into next bar for crossfade ──
     padEvents.push({
       time: barTime,
       notes: bar.voiced,
-      duration: barSec * 0.95,
+      duration: barSec * 1.15, // release tail bleeds into next bar
     });
 
     // ── Bass: chord root, one octave below ──
@@ -338,21 +345,26 @@ function generateSong(seed) {
 
       if (energy < 0.4) {
         // Whole notes: beat 1 only
-        bassEvents.push({ time: barTime, note: bassNote, duration: barSec * 0.9 });
+        bassEvents.push({ time: barTime, note: bassNote, duration: barSec * 0.9, vel: isFirst ? 0.6 : 1 });
       } else if (energy < 0.7) {
         // Half notes: beats 1 and 3
-        bassEvents.push({ time: barTime, note: bassNote, duration: beatSec * 1.8 });
-        bassEvents.push({ time: barTime + beatSec * 2, note: bassNote, duration: beatSec * 1.8 });
+        bassEvents.push({ time: barTime, note: bassNote, duration: beatSec * 1.8, vel: isFirst ? 0.6 : 1 });
+        bassEvents.push({ time: barTime + beatSec * 2, note: bassNote, duration: beatSec * 1.8, vel: isLast ? 0.7 : 1 });
       } else {
         // Eighth notes with chord tones
         const chordMidis = bar.voiced.map(n => Tonal.Note.midi(n) - 12);
         for (let step = 0; step < 8; step++) {
           if (rng() < 0.7) {
             const midi = pick(chordMidis);
+            // Fade in on first bar, fade out on last bar
+            let vel = 1;
+            if (isFirst && step < 4) vel = 0.4 + (step / 4) * 0.6;
+            if (isLast && step >= 6) vel = 0.7 - (step - 6) * 0.2;
             bassEvents.push({
               time: barTime + step * stepSec,
               note: Tonal.Note.fromMidi(midi),
               duration: stepSec * 0.8,
+              vel,
             });
           }
         }
@@ -371,6 +383,13 @@ function generateSong(seed) {
         if (hatPat[step])   hatEvents.push({ time: t });
         if (energy >= 0.5 && snarePat[step]) snareEvents.push({ time: t });
       }
+
+      // Drum fill on last bar before section change — snare roll on last 3 eighth notes
+      if (isLast && energy >= 0.3) {
+        for (let step = 5; step < 8; step++) {
+          snareEvents.push({ time: barTime + step * stepSec, vel: 0.5 + (step - 5) * 0.2 });
+        }
+      }
     }
 
     // ── Arp: energy >= 0.45 ──
@@ -383,10 +402,14 @@ function generateSong(seed) {
       const pattern = generateArpPattern(arpNotes, arpStyle, energy);
       for (let step = 0; step < 8; step++) {
         if (pattern[step] !== null) {
+          let vel = 1;
+          if (isFirst && step < 3) vel = 0.3 + (step / 3) * 0.7;
+          if (isLast && step >= 6) vel = 0.8 - (step - 6) * 0.3;
           arpEvents.push({
             time: barTime + step * stepSec,
             note: pattern[step],
             duration: stepSec * 0.5,
+            vel,
           });
         }
       }
@@ -406,11 +429,16 @@ function generateSong(seed) {
         if (!melodyRhythm[motifIdx]) continue;
         if (rng() > 0.5 + energy * 0.3) continue;
 
+        let vel = 1;
+        if (isFirst && step < 3) vel = 0.4 + (step / 3) * 0.6;
+        if (isLast && step >= 6) vel = 0.7 - (step - 6) * 0.2;
+
         const note = degreeToNote(scaleNotes, currentMotif[motifIdx], 5);
         melodyEvents.push({
           time: barTime + step * stepSec,
           note: note,
           duration: stepSec * 1.2,
+          vel,
         });
       }
     } else {
@@ -601,7 +629,7 @@ async function play(seed) {
   // Bass
   if (song.bassEvents.length > 0) {
     const bassPart = new Tone.Part((time, e) => {
-      bass.triggerAttackRelease(e.note, e.duration, time);
+      bass.triggerAttackRelease(e.note, e.duration, time, e.vel || 1);
     }, song.bassEvents.map(e => [e.time, e]));
     bassPart.start(0);
     parts.push(bassPart);
@@ -618,9 +646,9 @@ async function play(seed) {
 
   // Snare
   if (song.snareEvents.length > 0) {
-    const snarePart = new Tone.Part((time) => {
-      snare.triggerAttackRelease('16n', time);
-    }, song.snareEvents.map(e => [e.time, null]));
+    const snarePart = new Tone.Part((time, e) => {
+      snare.triggerAttackRelease('16n', time, e.vel || 1);
+    }, song.snareEvents.map(e => [e.time, e]));
     snarePart.start(0);
     parts.push(snarePart);
   }
@@ -637,7 +665,7 @@ async function play(seed) {
   // Arp
   if (song.arpEvents.length > 0) {
     const arpPart = new Tone.Part((time, e) => {
-      arp.triggerAttackRelease(e.note, e.duration, time);
+      arp.triggerAttackRelease(e.note, e.duration, time, e.vel || 1);
     }, song.arpEvents.map(e => [e.time, e]));
     arpPart.start(0);
     parts.push(arpPart);
@@ -646,7 +674,7 @@ async function play(seed) {
   // Melody
   if (song.melodyEvents.length > 0) {
     const melodyPart = new Tone.Part((time, e) => {
-      melody.triggerAttackRelease(e.note, e.duration, time);
+      melody.triggerAttackRelease(e.note, e.duration, time, e.vel || 1);
     }, song.melodyEvents.map(e => [e.time, e]));
     melodyPart.start(0);
     parts.push(melodyPart);
