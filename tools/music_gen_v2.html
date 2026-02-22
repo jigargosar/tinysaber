@@ -263,41 +263,24 @@ function buildEnergyCurve(structure) {
   return { curve, sectionNames };
 }
 
-// ─── BPM Curve (smooth per-bar variation) ─────────────────────────────────
+// ─── BPM Curve (per-section, locked within sections) ──────────────────────
 
-function buildBpmCurve(totalBars) {
-  // Seed-varied base offset from center
-  const baseOffset = (rng() - 0.5) * BPM_RANGE * 0.5; // ±6 shift per song
+function buildBpmCurve(structure) {
+  // Seed-varied base BPM for this song
+  const baseBpm = Math.round(BPM_CENTER + (rng() - 0.5) * BPM_RANGE);
 
-  // Generate smooth noise at ~2-bar frequency
-  const noiseLen = Math.ceil(totalBars / 2) + 2;
-  const noise = [];
-  for (let i = 0; i < noiseLen; i++) noise.push(rng());
-
+  // Each section gets a small nudge from base (±4 max), held constant
   const bpmCurve = [];
-  for (let i = 0; i < totalBars; i++) {
-    const fi = Math.floor(i * 0.5);
-    const frac = (i * 0.5) - fi;
-    const t = frac * frac * (3 - 2 * frac); // smoothstep
-    const a = noise[Math.min(fi, noiseLen - 1)];
-    const b = noise[Math.min(fi + 1, noiseLen - 1)];
-    const n = a + (b - a) * t; // 0..1
-    const bpm = BPM_CENTER + baseOffset + (n - 0.5) * BPM_RANGE;
-    bpmCurve.push(Math.round(Math.max(100, Math.min(160, bpm))));
+  let currentBpm = baseBpm;
+  for (const section of structure) {
+    const nudge = Math.round((rng() - 0.5) * 8); // ±4
+    currentBpm = Math.max(112, Math.min(144, baseBpm + nudge));
+    for (let b = 0; b < section.bars; b++) {
+      bpmCurve.push(currentBpm);
+    }
   }
 
-  // 2 passes of neighbor smoothing to avoid jarring jumps
-  function smooth(arr) {
-    return arr.map((e, i) => {
-      const prev = i > 0 ? arr[i - 1] : e;
-      const next = i < arr.length - 1 ? arr[i + 1] : e;
-      return Math.round(prev * 0.2 + e * 0.6 + next * 0.2);
-    });
-  }
-  let result = bpmCurve;
-  for (let pass = 0; pass < 2; pass++) result = smooth(result);
-
-  return result;
+  return bpmCurve;
 }
 
 // Compute cumulative bar start times and per-bar durations from BPM curve
@@ -406,8 +389,8 @@ function generateSong(seed) {
   const { curve: energyCurve, sectionNames } = buildEnergyCurve(structure);
   const totalBars = energyCurve.length;
 
-  // Build per-bar BPM curve and timing
-  const bpmCurve = buildBpmCurve(totalBars);
+  // Build per-section BPM curve and timing
+  const bpmCurve = buildBpmCurve(structure);
   const { barStartTimes, barDurations, totalTime } = buildBarTiming(bpmCurve);
 
   // Build bar data
