@@ -11,6 +11,9 @@ import { createMusic } from './music.js';
 
 const BUILD = 'v18';
 
+const $ = sel => document.querySelector(sel);
+const updateStyle = (el, styles) => Object.assign(el.style, styles);
+
 const HIT_SCORE_CORRECT = 100;
 const HIT_SCORE_WRONG   = 25;
 const HAPTIC_MS_CORRECT = 250;
@@ -46,19 +49,24 @@ const hitTesters  = {
   right: blocks.createHitTester(),
 };
 
-const xr = setupXRSession(renderer,
-  () => {
-    document.getElementById('ui').style.display = 'none';
-    music.toggle();
-  },
-  () => {
-    document.getElementById('ui').style.display = 'flex';
-    blocks.clearAllBlocks();
-    spawnTimer = 0;
-    hud.reset();
-    hitTesters.left.reset();
-    hitTesters.right.reset();
+function resetGameState({ isStarting }) {
+  blocks.clearAllBlocks();
+  spawnTimer = 0;
+  hud.reset();
+  hitTesters.left.reset();
+  hitTesters.right.reset();
+  if (isStarting) {
+    updateStyle($('#ui'), { display: 'none' });
+    music.start();
+  } else {
+    updateStyle($('#ui'), { display: 'flex' });
+    music.stop();
   }
+}
+
+const xr = setupXRSession(renderer,
+  () => resetGameState({ isStarting: true }),
+  () => resetGameState({ isStarting: false })
 );
 
 // ─── Game Loop ────────────────────────────────────────────────────────────

@@ -13,7 +13,7 @@ export function createControllers(music, toggleWireframe, spawnDebugWave) {
       if (src.handedness === 'right') {
         const aDown = gp.buttons[RIGHT_A_BUTTON]?.pressed ?? false;
         const bDown = gp.buttons[RIGHT_B_BUTTON]?.pressed ?? false;
-        if (aDown && !btnWas.A) music.toggle();
+        if (aDown && !btnWas.A) music.pauseResumeToggle();
         btnWas.A = aDown;
         if (bDown && !btnWas.B) toggleWireframe();
         btnWas.B = bDown;

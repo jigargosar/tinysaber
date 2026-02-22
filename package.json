@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "iwer": "^2.1.1",
+    "p-mutex": "^1.0.0",
     "three": "^0.183.1"
   }
 }

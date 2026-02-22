@@ -1,3 +1,5 @@
+import Mutex from 'p-mutex';
+
 const BPM       = 124;
 const STEP_SEC  = (60 / BPM) / 2; // 8th note
 const LOOKAHEAD = 0.12;
@@ -185,8 +187,37 @@ function createArpPlayer(graph) {
   };
 }
 
+async function resume(audioCtx, sched) {
+  await audioCtx.resume();
+  sched.nextTime = audioCtx.currentTime + 0.05;
+}
+
+async function pause(audioCtx) {
+  await audioCtx.suspend();
+}
+
+async function start(audioCtx, sched) {
+  sched.step = 0;
+  await resume(audioCtx, sched);
+}
+
+async function stop(audioCtx) {
+  await pause(audioCtx);
+}
+
+async function pauseResumeToggle(audioCtx, sched) {
+  if (audioCtx.state === 'running') {
+    await pause(audioCtx);
+  } else {
+    await resume(audioCtx, sched);
+  }
+}
+
 export function createMusic() {
-  const graph = createGraph(new AudioContext());
+  const audioCtx = new AudioContext();
+  const graph    = createGraph(audioCtx);
+  const mutex    = new Mutex();
+  const sched    = { step: 0, nextTime: 0 };
 
   const playKick  = createKickPlayer(graph);
   const playSnare = createSnarePlayer(graph);
@@ -203,26 +234,19 @@ export function createMusic() {
     playArp(t,  stage.arp[step]);
   }
 
-  let musicOn      = false;
-  let schedStep    = 0;
-  let nextStepTime = 0;
-
   setInterval(() => {
-    if (!musicOn) return;
-    while (nextStepTime < graph.audioCtx.currentTime + LOOKAHEAD) {
-      scheduleStep(schedStep++, nextStepTime);
-      nextStepTime += STEP_SEC;
+    if (audioCtx.state !== 'running') return;
+    while (sched.nextTime < audioCtx.currentTime + LOOKAHEAD) {
+      scheduleStep(sched.step++, sched.nextTime);
+      sched.nextTime += STEP_SEC;
     }
   }, SCHED_MS);
 
+  const locked = (task) => () => mutex.withLock(task).catch(console.error);
+
   return {
-    toggle() {
-      musicOn = !musicOn;
-      if (musicOn) {
-        graph.audioCtx.resume();
-        nextStepTime = graph.audioCtx.currentTime + 0.05;
-        schedStep = 0;
-      }
-    },
+    start:             locked(() => start(audioCtx, sched)),
+    stop:              locked(() => stop(audioCtx)),
+    pauseResumeToggle: locked(() => pauseResumeToggle(audioCtx, sched)),
   };
 }
