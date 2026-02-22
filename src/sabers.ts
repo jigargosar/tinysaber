@@ -5,7 +5,7 @@ const BLADE_LENGTH  = 1.10;
 
 export const SABER_REACH = HANDLE_LENGTH + BLADE_LENGTH;
 
-function makeSaber(color) {
+function makeSaber(color: THREE.ColorRepresentation): THREE.Group {
   const g = new THREE.Group();
   const inner = new THREE.Group();
   inner.rotation.x = -Math.PI / 2;
@@ -37,8 +37,14 @@ function makeSaber(color) {
   return g;
 }
 
-export function createSabers() {
-  const root = new THREE.Group();
+export interface Sabers {
+  root: THREE.Group;
+  left: THREE.Group;
+  right: THREE.Group;
+}
+
+export function createSabers(): Sabers {
+  const root  = new THREE.Group();
   const left  = makeSaber(0xff2020);
   const right = makeSaber(0x2060ff);
   left.position.set(-0.5, 1.2, -0.4);

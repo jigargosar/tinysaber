@@ -1,9 +1,27 @@
-export function setupXRSession(renderer, onSessionStart, onSessionEnd) {
-  let xrSession = null;
-  let refSpace  = null;
-  const inputSources = { left: null, right: null };
+import type { WebGLRenderer } from 'three';
 
-  document.getElementById('enter-btn').addEventListener('click', async () => {
+export type Hand = 'left' | 'right';
+
+export type ControllerCallback = (hand: Hand, matrix: Float32Array) => void;
+
+export interface XRSessionAPI {
+  forEachController: (frame: XRFrame | undefined, callback: ControllerCallback) => void;
+  triggerHaptic: (hand: Hand, intensity?: number, ms?: number) => void;
+}
+
+export function setupXRSession(
+  renderer: WebGLRenderer,
+  onSessionStart: () => void,
+  onSessionEnd: () => void,
+): XRSessionAPI {
+  let xrSession: XRSession | null = null;
+  let refSpace: XRReferenceSpace | null = null;
+  const inputSources: Record<Hand, XRInputSource | null> = { left: null, right: null };
+
+  const enterBtn = document.getElementById('enter-btn');
+  if (!enterBtn) throw new Error('Missing #enter-btn element');
+
+  enterBtn.addEventListener('click', async () => {
     if (!navigator.xr) { setStatus('WebXR not available'); return; }
     const ok = await navigator.xr.isSessionSupported('immersive-vr').catch(() => false);
     if (!ok) { setStatus('immersive-vr not supported on this device/browser'); return; }
@@ -26,16 +44,18 @@ export function setupXRSession(renderer, onSessionStart, onSessionEnd) {
       await renderer.xr.setSession(xrSession);
       onSessionStart();
     } catch (err) {
-      setStatus(`Failed to start VR session: ${err.message}`);
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(`Failed to start VR session: ${message}`);
       if (xrSession) { xrSession.end().catch(() => {}); xrSession = null; }
     }
   });
 
-  function setStatus(msg) {
-    document.getElementById('status').textContent = msg;
+  function setStatus(msg: string): void {
+    const el = document.getElementById('status');
+    if (el) el.textContent = msg;
   }
 
-  function forEachController(frame, callback) {
+  function forEachController(frame: XRFrame | undefined, callback: ControllerCallback): void {
     if (!frame || !refSpace) return;
     for (const src of frame.session.inputSources) {
       const hand = src.handedness;
@@ -48,7 +68,7 @@ export function setupXRSession(renderer, onSessionStart, onSessionEnd) {
     }
   }
 
-  function triggerHaptic(hand, intensity = 0.8, ms = 100) {
+  function triggerHaptic(hand: Hand, intensity = 0.8, ms = 100): void {
     inputSources[hand]?.gamepad?.hapticActuators?.[0]?.pulse(intensity, ms);
   }
 

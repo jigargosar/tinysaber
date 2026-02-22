@@ -5,7 +5,17 @@ const STEP_SEC  = (60 / BPM) / 2; // 8th note
 const LOOKAHEAD = 0.12;
 const SCHED_MS  = 40;
 
-const STAGES = [
+interface Stage {
+  bars: number;
+  kick:   number[];
+  snare:  number[];
+  hat:    number[];
+  hatAcc: number[];
+  bass:   number[];
+  arp:    number[];
+}
+
+const STAGES: Stage[] = [
   // Intro — kick + bass only
   {
     bars: 4,
@@ -54,7 +64,13 @@ const STAGES = [
   },
 ];
 
-function getSongSection(globalStep) {
+interface SongSection {
+  stage: Stage;
+  step: number;
+  extraKick: boolean;
+}
+
+function getSongSection(globalStep: number): SongSection {
   const STEPS_PER_BAR = 16;
   const cycleLen = STAGES.reduce((s, st) => s + st.bars * STEPS_PER_BAR, 0);
   let remaining = globalStep % cycleLen;
@@ -74,14 +90,19 @@ function getSongSection(globalStep) {
   return { stage: STAGES[0], step: 0, extraKick: false };
 }
 
-function createNoiseBuffer(audioCtx, duration) {
+interface AudioGraph {
+  audioCtx: AudioContext;
+  compressor: DynamicsCompressorNode;
+}
+
+function createNoiseBuffer(audioCtx: AudioContext, duration: number): AudioBuffer {
   const buf = audioCtx.createBuffer(1, Math.ceil(audioCtx.sampleRate * duration), audioCtx.sampleRate);
   const data = buf.getChannelData(0);
   for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
   return buf;
 }
 
-function createGraph(audioCtx) {
+function createGraph(audioCtx: AudioContext): AudioGraph {
   const compressor = audioCtx.createDynamicsCompressor();
   compressor.threshold.value = -18;
   compressor.knee.value      = 6;
@@ -95,8 +116,8 @@ function createGraph(audioCtx) {
   return { audioCtx, compressor };
 }
 
-function createKickPlayer(graph) {
-  return function playKick(t) {
+function createKickPlayer(graph: AudioGraph): (t: number) => void {
+  return function playKick(t: number): void {
     const o = graph.audioCtx.createOscillator();
     const g = graph.audioCtx.createGain();
     o.type = 'sine';
@@ -110,9 +131,9 @@ function createKickPlayer(graph) {
   };
 }
 
-function createSnarePlayer(graph) {
+function createSnarePlayer(graph: AudioGraph): (t: number) => void {
   const buffer = createNoiseBuffer(graph.audioCtx, 0.15);
-  return function playSnare(t) {
+  return function playSnare(t: number): void {
     const noise = graph.audioCtx.createBufferSource();
     const nGain = graph.audioCtx.createGain();
     const nHp   = graph.audioCtx.createBiquadFilter();
@@ -139,9 +160,9 @@ function createSnarePlayer(graph) {
   };
 }
 
-function createHatPlayer(graph) {
+function createHatPlayer(graph: AudioGraph): (t: number, accent: number) => void {
   const buffer = createNoiseBuffer(graph.audioCtx, 0.06);
-  return function playHat(t, accent) {
+  return function playHat(t: number, accent: number): void {
     const dur = accent ? 0.055 : 0.035;
     const src = graph.audioCtx.createBufferSource();
     const hp  = graph.audioCtx.createBiquadFilter();
@@ -155,8 +176,8 @@ function createHatPlayer(graph) {
   };
 }
 
-function createBassPlayer(graph) {
-  return function playBass(t, freq) {
+function createBassPlayer(graph: AudioGraph): (t: number, freq: number) => void {
+  return function playBass(t: number, freq: number): void {
     if (!freq) return;
     const o = graph.audioCtx.createOscillator();
     const g = graph.audioCtx.createGain();
@@ -170,8 +191,8 @@ function createBassPlayer(graph) {
   };
 }
 
-function createArpPlayer(graph) {
-  return function playArp(t, freq) {
+function createArpPlayer(graph: AudioGraph): (t: number, freq: number) => void {
+  return function playArp(t: number, freq: number): void {
     if (!freq) return;
     const o  = graph.audioCtx.createOscillator();
     const g  = graph.audioCtx.createGain();
@@ -187,25 +208,30 @@ function createArpPlayer(graph) {
   };
 }
 
-async function resume(audioCtx, sched) {
+interface SchedulerState {
+  step: number;
+  nextTime: number;
+}
+
+async function resume(audioCtx: AudioContext, sched: SchedulerState): Promise<void> {
   await audioCtx.resume();
   sched.nextTime = audioCtx.currentTime + 0.05;
 }
 
-async function pause(audioCtx) {
+async function pause(audioCtx: AudioContext): Promise<void> {
   await audioCtx.suspend();
 }
 
-async function start(audioCtx, sched) {
+async function start(audioCtx: AudioContext, sched: SchedulerState): Promise<void> {
   sched.step = 0;
   await resume(audioCtx, sched);
 }
 
-async function stop(audioCtx) {
+async function stop(audioCtx: AudioContext): Promise<void> {
   await pause(audioCtx);
 }
 
-async function pauseResumeToggle(audioCtx, sched) {
+async function pauseResumeToggle(audioCtx: AudioContext, sched: SchedulerState): Promise<void> {
   if (audioCtx.state === 'running') {
     await pause(audioCtx);
   } else {
@@ -213,11 +239,17 @@ async function pauseResumeToggle(audioCtx, sched) {
   }
 }
 
-export function createMusic() {
+export interface Music {
+  start: () => void;
+  stop: () => void;
+  pauseResumeToggle: () => void;
+}
+
+export function createMusic(): Music {
   const audioCtx = new AudioContext();
   const graph    = createGraph(audioCtx);
   const mutex    = new Mutex();
-  const sched    = { step: 0, nextTime: 0 };
+  const sched: SchedulerState = { step: 0, nextTime: 0 };
 
   const playKick  = createKickPlayer(graph);
   const playSnare = createSnarePlayer(graph);
@@ -225,7 +257,7 @@ export function createMusic() {
   const playBass  = createBassPlayer(graph);
   const playArp   = createArpPlayer(graph);
 
-  function scheduleStep(globalStep, t) {
+  function scheduleStep(globalStep: number, t: number): void {
     const { stage, step, extraKick } = getSongSection(globalStep);
     if (stage.kick[step] || extraKick) playKick(t);
     if (stage.snare[step]) playSnare(t);
@@ -242,7 +274,7 @@ export function createMusic() {
     }
   }, SCHED_MS);
 
-  const locked = (task) => () => { mutex.withLock(task); };
+  const locked = (task: () => Promise<void>) => () => { mutex.withLock(task); };
 
   return {
     start:             locked(() => start(audioCtx, sched)),

@@ -1,17 +1,16 @@
 import * as THREE from 'three';
 import { XRDevice, metaQuest3 } from 'iwer';
-import { createRenderer, createScene, createCamera, createEnvironment } from './scene.js';
-import { createSabers, SABER_REACH } from './sabers.js';
-import { createBlocks } from './blocks.js';
-import { createParticles } from './particles.js';
-import { createHUD } from './hud.js';
-import { createControllers } from './controllers.js';
-import { setupXRSession } from './xrSession.js';
-import { createMusic } from './music.js';
+import { createRenderer, createScene, createCamera, createEnvironment } from './scene';
+import { createSabers, SABER_REACH } from './sabers';
+import { createBlocks } from './blocks';
+import { createParticles } from './particles';
+import { createHUD } from './hud';
+import { createControllers } from './controllers';
+import { setupXRSession } from './xrSession';
+import type { Hand } from './xrSession';
+import { createMusic } from './music';
 
 const BUILD = 'v18';
-
-type Hand = 'left' | 'right';
 
 const $ = (sel: string) => document.querySelector(sel) as HTMLElement;
 const updateStyle = (el: HTMLElement, styles: Partial<CSSStyleDeclaration>) => Object.assign(el.style, styles);
@@ -46,12 +45,12 @@ scene.add(camera, environment, sabers.root, blocks.root, particles.root, hud.roo
 const music       = createMusic();
 const controllers = createControllers(music, blocks.toggleWireframe, blocks.spawnDebugWave);
 
-const hitTesters  = {
+const hitTesters = {
   left:  blocks.createHitTester(),
   right: blocks.createHitTester(),
 };
 
-function resetGameState({ isStarting }: { isStarting: boolean }) {
+function resetGameState({ isStarting }: { isStarting: boolean }): void {
   blocks.clearAllBlocks();
   spawnTimer = 0;
   hud.reset();
@@ -83,15 +82,15 @@ const tmpMat     = new THREE.Matrix4();
 // Mutable context updated per controller — avoids per-frame closure allocation
 const hitCtx = { isLeftHand: false, hand: 'left' as Hand };
 
-function onHit(pos: THREE.Vector3, isRed: boolean) {
+function onHit(pos: THREE.Vector3, isRed: boolean): void {
   particles.explode(pos, isRed ? COLOR_RED : COLOR_BLUE);
   const correct = hitCtx.isLeftHand === isRed;
   hud.addScore(correct ? HIT_SCORE_CORRECT : HIT_SCORE_WRONG);
   xr.triggerHaptic(hitCtx.hand, 1.0, correct ? HAPTIC_MS_CORRECT : HAPTIC_MS_WRONG);
 }
 
-function onControllerFrame(hand: Hand, matrix: Float32Array) {
-  const saber = sabers[hand] as THREE.Object3D;
+function onControllerFrame(hand: Hand, matrix: Float32Array): void {
+  const saber = sabers[hand];
   tmpMat.fromArray(matrix);
   tmpMat.decompose(saber.position, saber.quaternion, saber.scale);
   tmpPos.copy(saber.position);
@@ -102,10 +101,10 @@ function onControllerFrame(hand: Hand, matrix: Float32Array) {
 
   hitCtx.isLeftHand = hand === 'left';
   hitCtx.hand = hand;
-  (hitTesters[hand] as { testHit: Function; reset: Function }).testHit(tmpStart, tmpTip, onHit);
+  hitTesters[hand].testHit(tmpStart, tmpTip, onHit);
 }
 
-renderer.setAnimationLoop((time: number, frame: XRFrame | null) => {
+renderer.setAnimationLoop((time, frame) => {
   const dt = Math.min((time - lastTime) / 1000, 0.05);
   lastTime = time;
 

@@ -2,10 +2,22 @@ const RIGHT_A_BUTTON = 4;
 const RIGHT_B_BUTTON = 5;
 const LEFT_Y_BUTTON  = 5;
 
-export function createControllers(music, toggleWireframe, spawnDebugWave) {
+interface MusicToggle {
+  pauseResumeToggle: () => void;
+}
+
+export interface Controllers {
+  checkAllButtons: (frame: XRFrame | undefined) => void;
+}
+
+export function createControllers(
+  music: MusicToggle,
+  toggleWireframe: () => void,
+  spawnDebugWave: () => void,
+): Controllers {
   const btnWas = { A: false, B: false, Y: false };
 
-  function checkAllButtons(frame) {
+  function checkAllButtons(frame: XRFrame | undefined): void {
     if (!frame) return;
     for (const src of frame.session.inputSources) {
       const gp = src?.gamepad;

@@ -5,8 +5,6 @@
     "moduleResolution": "bundler",
     "strict": true,
     "noEmit": true,
-    "allowJs": true,
-    "checkJs": false,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "types": ["webxr"]

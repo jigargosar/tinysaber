@@ -6,17 +6,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 pnpm dev        # start dev server at https://localhost:5173 (self-signed cert)
+pnpm typecheck  # run tsc --noEmit
+pnpm build      # production build via Vite
 ```
-
-No build, lint, or test commands — plain JS + Vite, no TypeScript or test framework yet (TypeScript migration is a future consideration).
 
 HTTPS is required because WebXR only works on secure origins. Accept the self-signed cert warning in the browser.
 
-To test on a Quest headset over WiFi, access `https://<your-local-ip>:5173` from the Quest browser. `vite.config.js` already sets `host: true`.
+To test on a Quest headset over WiFi, access `https://<your-local-ip>:5173` from the Quest browser. `vite.config.ts` already sets `host: true`.
 
 ## Stack
 
-Three.js (rendering) + IWER (WebXR emulation in browser) + Web Audio API (procedural music). No framework, no TypeScript. `src/main.js` is the orchestrator loaded by `index.html`.
+Three.js (rendering) + IWER (WebXR emulation in browser) + Web Audio API (procedural music) + TypeScript (strict mode). No framework. `src/main.ts` is the orchestrator loaded by `index.html`.
 
 ## IWER
 
@@ -24,7 +24,7 @@ Three.js (rendering) + IWER (WebXR emulation in browser) + Web Audio API (proced
 
 IWER emulates the Quest WebXR runtime in the browser. Initialized before any WebXR calls:
 
-```js
+```ts
 const xrDevice = new XRDevice(metaQuest3);
 xrDevice.installRuntime();
 xrDevice.position.set(0, 1.6, 0);
@@ -41,21 +41,22 @@ See `docs/architecture.md` for render loop, hit detection, music, and particle s
 
 ## Source Structure
 
-Each module returns `{ root: THREE.Group, ...api }`. Only `main.js` calls `scene.add()`.
+Each module returns a typed interface (e.g. `Sabers`, `Blocks`, `Particles`). Only `main.ts` calls `scene.add()`.
 
-- `src/main.js` — orchestrator: wires modules, owns game loop and session callbacks
-- `src/scene.js` — renderer, scene (bg/fog), camera, environment group (lights, grid, tunnel)
-- `src/sabers.js` — saber meshes; exports `createSabers()` → `{ root, left, right }` and `SABER_REACH`
-- `src/blocks.js` — block spawning, wireframe, movement tick, hit detection via `createHitTester()`
-- `src/particles.js` — pooled particle system; exports `createParticles()` → `{ root, explode, tick }`
-- `src/hud.js` — canvas score sprite; exports `createHUD(buildLabel)` → `{ root, addScore, reset }`
-- `src/controllers.js` — XR button polling; exports `createControllers(music, toggleWireframe, spawnDebugWave)`
-- `src/xrSession.js` — WebXR session lifecycle; exports `setupXRSession(renderer, onStart, onEnd)` → `{ forEachController, triggerHaptic }`
-- `src/music.js` — procedural audio; exports `createMusic()` → `{ toggle() }`
+- `src/main.ts` — orchestrator: wires modules, owns game loop and session callbacks
+- `src/scene.ts` — renderer, scene (bg/fog), camera, environment group (lights, grid, tunnel)
+- `src/sabers.ts` — saber meshes; exports `createSabers()` → `Sabers` and `SABER_REACH`
+- `src/blocks.ts` — block spawning, wireframe, movement tick, hit detection via `createHitTester()`
+- `src/particles.ts` — pooled particle system; exports `createParticles()` → `Particles`
+- `src/hud.ts` — canvas score sprite; exports `createHUD(buildLabel)` → `HUD`
+- `src/controllers.ts` — XR button polling; exports `createControllers(music, toggleWireframe, spawnDebugWave)` → `Controllers`
+- `src/xrSession.ts` — WebXR session lifecycle; exports `setupXRSession(renderer, onStart, onEnd)` → `XRSessionAPI`, also exports `Hand` type
+- `src/music.ts` — procedural audio; exports `createMusic()` → `Music`
+- `src/webxr-haptics.d.ts` — ambient augmentation for experimental GamepadHapticActuator.pulse API
 
 ## Conventions
 
-**`BUILD` constant** (`src/main.js` top) — increment on notable changes; displayed in the score HUD.
+**`BUILD` constant** (`src/main.ts` top) — increment on notable changes; displayed in the score HUD.
 
 **Hot-path allocation** — pre-allocated temporaries (`_box`, `_segA`, `_segB`, `_d`, `_expanded`, `tmpPos`, etc.) avoid GC in the render loop. Never replace them with inline `new THREE.Vector3()` calls inside `setAnimationLoop` or `testHit`. Game loop callbacks (`onHit`, `onControllerFrame`) are hoisted named functions — never inline arrow functions inside `setAnimationLoop`.
 
@@ -67,4 +68,4 @@ Each module returns `{ root: THREE.Group, ...api }`. Only `main.js` calls `scene
 
 ## Scoring
 
-Hitting a block with the correct saber color: +100 (`HIT_SCORE_CORRECT`). Wrong color: +25 (`HIT_SCORE_WRONG`). Score state owned by `hud.js`; call `hud.addScore(amount)` — it redraws automatically.
+Hitting a block with the correct saber color: +100 (`HIT_SCORE_CORRECT`). Wrong color: +25 (`HIT_SCORE_WRONG`). Score state owned by `hud.ts`; call `hud.addScore(amount)` — it redraws automatically.

@@ -3,11 +3,19 @@ import * as THREE from 'three';
 const CANVAS_W = 320;
 const CANVAS_H = 80;
 
-export function createHUD(buildLabel) {
+export interface HUD {
+  root: THREE.Sprite;
+  addScore: (amount: number) => void;
+  reset: () => void;
+}
+
+export function createHUD(buildLabel: string): HUD {
   const canvas = document.createElement('canvas');
   canvas.width  = CANVAS_W;
   canvas.height = CANVAS_H;
-  const ctx    = canvas.getContext('2d');
+  const rawCtx = canvas.getContext('2d');
+  if (!rawCtx) throw new Error('2D context unavailable');
+  const ctx = rawCtx;
   const tex    = new THREE.CanvasTexture(canvas);
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
   sprite.position.set(0, 2.4, -3);
@@ -15,13 +23,13 @@ export function createHUD(buildLabel) {
 
   let score = 0;
 
-  function draw() {
+  function draw(): void {
     ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
     ctx.fillStyle = 'hsl(270,80%,55%)';
     ctx.font = 'bold 52px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(score, CANVAS_W / 2, CANVAS_H / 2);
+    ctx.fillText(String(score), CANVAS_W / 2, CANVAS_H / 2);
     ctx.fillStyle = 'hsl(270,40%,45%)';
     ctx.font = '16px monospace';
     ctx.textAlign = 'right';
@@ -32,12 +40,12 @@ export function createHUD(buildLabel) {
 
   draw();
 
-  function addScore(amount) {
+  function addScore(amount: number): void {
     score += amount;
     draw();
   }
 
-  function reset() {
+  function reset(): void {
     score = 0;
     draw();
   }

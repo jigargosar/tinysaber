@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-export function createRenderer() {
+export function createRenderer(): THREE.WebGLRenderer {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -9,20 +9,20 @@ export function createRenderer() {
   return renderer;
 }
 
-export function createScene() {
+export function createScene(): THREE.Scene {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('hsl(270,100%,3%)');
   scene.fog = new THREE.Fog(0x050005, 20, 60);
   return scene;
 }
 
-export function createCamera() {
+export function createCamera(): THREE.PerspectiveCamera {
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 100);
   camera.position.set(0, 1.6, 0);
   return camera;
 }
 
-export function createEnvironment() {
+export function createEnvironment(): THREE.Group {
   const root = new THREE.Group();
 
   root.add(new THREE.AmbientLight(0x8866aa, 2));

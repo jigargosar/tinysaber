@@ -21,11 +21,13 @@ const collisionGeo = new THREE.BoxGeometry(
 );
 const edgeGeo = new THREE.EdgesGeometry(collisionGeo);
 
-const MATS = {
+type BlockColorKey = 'red' | 'blue';
+
+const MATS: Record<BlockColorKey, THREE.MeshLambertMaterial> = {
   red:  new THREE.MeshLambertMaterial({ color: 0xff2020, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false }),
   blue: new THREE.MeshLambertMaterial({ color: 0x2060ff, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false }),
 };
-const EDGE_MATS = {
+const EDGE_MATS: Record<BlockColorKey, THREE.LineBasicMaterial> = {
   red:  new THREE.LineBasicMaterial({ color: 0xffffff }),
   blue: new THREE.LineBasicMaterial({ color: 0xffffff }),
 };
@@ -39,11 +41,37 @@ const _d         = new THREE.Vector3();
 const _segA      = new THREE.Vector3();
 const _segB      = new THREE.Vector3();
 
-function segmentHitsBox(a, b, box) {
+interface BlockData {
+  isRed: boolean;
+  edges: THREE.LineSegments;
+}
+
+function blockData(mesh: THREE.Mesh): BlockData {
+  return mesh.userData as BlockData;
+}
+
+export type HitCallback = (position: THREE.Vector3, isRed: boolean) => void;
+
+export interface HitTester {
+  testHit: (segStart: THREE.Vector3, segEnd: THREE.Vector3, onHit: HitCallback) => void;
+  reset: () => void;
+}
+
+export interface Blocks {
+  root: THREE.Group;
+  spawnBlock: () => void;
+  clearAllBlocks: () => void;
+  spawnDebugWave: () => void;
+  toggleWireframe: () => void;
+  tick: (dt: number) => void;
+  createHitTester: () => HitTester;
+}
+
+function segmentHitsBox(a: THREE.Vector3, b: THREE.Vector3, box: THREE.Box3): boolean {
   _expanded.copy(box).expandByScalar(CUBE_HIT_MARGIN);
   _d.subVectors(b, a);
   let tmin = 0, tmax = 1;
-  let da, t0, t1;
+  let da: number, t0: number, t1: number;
   da = _d.x;
   if (Math.abs(da) < 1e-8) { if (a.x < _expanded.min.x || a.x > _expanded.max.x) return false; }
   else { t0 = (_expanded.min.x - a.x) / da; t1 = (_expanded.max.x - a.x) / da; tmin = Math.max(tmin, Math.min(t0,t1)); tmax = Math.min(tmax, Math.max(t0,t1)); if (tmin > tmax) return false; }
@@ -56,24 +84,24 @@ function segmentHitsBox(a, b, box) {
   return true;
 }
 
-export function createBlocks() {
+export function createBlocks(): Blocks {
   const root = new THREE.Group();
-  let blocks = [];
+  let blocks: THREE.Mesh[] = [];
   let wireframeOn = true;
 
-  function spawnCube(x, y, z, isRed) {
-    const key = isRed ? 'red' : 'blue';
+  function spawnCube(x: number, y: number, z: number, isRed: boolean): void {
+    const key: BlockColorKey = isRed ? 'red' : 'blue';
     const mesh = new THREE.Mesh(blockGeo, MATS[key]);
     mesh.position.set(x, y, z);
     const edges = new THREE.LineSegments(edgeGeo, EDGE_MATS[key]);
     edges.visible = wireframeOn;
     mesh.add(edges);
-    mesh.userData = { isRed, edges };
+    mesh.userData = { isRed, edges } satisfies BlockData;
     root.add(mesh);
     blocks.push(mesh);
   }
 
-  function spawnBlock() {
+  function spawnBlock(): void {
     spawnCube(
       LANES_X[Math.floor(Math.random() * LANES_X.length)],
       LANES_Y[Math.floor(Math.random() * LANES_Y.length)],
@@ -81,21 +109,21 @@ export function createBlocks() {
     );
   }
 
-  function clearAllBlocks() {
+  function clearAllBlocks(): void {
     for (const b of blocks) root.remove(b);
     blocks = [];
   }
 
-  function spawnDebugWave() {
+  function spawnDebugWave(): void {
     clearAllBlocks();
     for (const x of LANES_X)
       for (const y of LANES_Y)
         spawnCube(x, y, DEBUG_WAVE_Z, x < 0);
   }
 
-  function toggleWireframe() {
+  function toggleWireframe(): void {
     wireframeOn = !wireframeOn;
-    for (const key of ['red', 'blue']) {
+    for (const key of (['red', 'blue'] as const)) {
       MATS[key].opacity     = wireframeOn ? 0.45 : 1.0;
       MATS[key].transparent = wireframeOn;
       MATS[key].side        = wireframeOn ? THREE.DoubleSide : THREE.FrontSide;
@@ -103,11 +131,11 @@ export function createBlocks() {
       MATS[key].needsUpdate = true;
     }
     for (const b of blocks) {
-      b.userData.edges.visible = wireframeOn;
+      blockData(b).edges.visible = wireframeOn;
     }
   }
 
-  function tick(dt) {
+  function tick(dt: number): void {
     for (let i = blocks.length - 1; i >= 0; i--) {
       const b = blocks[i];
       b.position.z += CUBE_SPEED * dt;
@@ -120,13 +148,13 @@ export function createBlocks() {
 
   // onHit(position: THREE.Vector3, isRed: boolean)
   // position is a shared pre-allocated vector — caller must not store the reference
-  function createHitTester() {
+  function createHitTester(): HitTester {
     const prev = {
       start: new THREE.Vector3(),
       end:   new THREE.Vector3(),
     };
 
-    function testHit(segStart, segEnd, onHit) {
+    function testHit(segStart: THREE.Vector3, segEnd: THREE.Vector3, onHit: HitCallback): void {
       for (let i = blocks.length - 1; i >= 0; i--) {
         const b = blocks[i];
 
@@ -147,7 +175,7 @@ export function createBlocks() {
           root.remove(b);
           blocks.splice(i, 1);
           _hitPos.copy(_blockPos);
-          onHit(_hitPos, b.userData.isRed);
+          onHit(_hitPos, blockData(b).isRed);
         }
       }
 
@@ -155,7 +183,7 @@ export function createBlocks() {
       prev.end.copy(segEnd);
     }
 
-    function reset() {
+    function reset(): void {
       prev.start.set(0, 0, 0);
       prev.end.set(0, 0, 0);
     }
