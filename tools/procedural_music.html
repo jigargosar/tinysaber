@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Procedural Music Generator</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a12; color: #c8c8e0; font-family: monospace; padding: 24px; }
+  h2 { color: #a080d0; margin-bottom: 12px; font-size: 18px; }
+
+  .panel {
+    background: #0e0e1a; border: 1px solid #1a1a30; border-radius: 6px;
+    padding: 16px; margin-bottom: 16px;
+  }
+  .panel-title { color: #8070a0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+
+  .knobs { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+  .knob { display: flex; flex-direction: column; gap: 4px; }
+  .knob label { font-size: 11px; color: #8878a8; display: flex; justify-content: space-between; }
+  .knob input[type=range] {
+    width: 100%; accent-color: #6a40a0; height: 6px;
+    -webkit-appearance: none; background: #1a1830; border-radius: 3px; outline: none;
+  }
+  .knob input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px;
+    background: #8060c0; border-radius: 50%; cursor: pointer;
+  }
+  .knob select, .knob input[type=number] {
+    background: #1a1830; color: #c8c8e0; border: 1px solid #2a2848;
+    border-radius: 3px; padding: 4px 6px; font-family: monospace; font-size: 12px;
+  }
+
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  button {
+    padding: 10px 24px; background: #2a1848; color: #c8b0f0; border: 1px solid #4a2878;
+    border-radius: 4px; font-family: monospace; font-size: 14px; cursor: pointer;
+  }
+  button:hover { background: #3a2060; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  button.small { padding: 6px 14px; font-size: 12px; }
+
+  .mute-btn {
+    padding: 2px 8px; font-size: 11px; border: 1px solid #3a2860;
+    background: #1a1830; color: #a090c0; cursor: pointer; border-radius: 3px;
+  }
+  .mute-btn:hover { background: #2a2050; }
+  .mute-btn.muted { background: #401020; color: #ff6080; border-color: #602040; }
+  .mute-btn.solo { background: #103820; color: #60ff90; border-color: #205830; }
+
+  #status { margin-bottom: 12px; color: #8070a0; font-size: 13px; min-height: 18px; }
+  #player { margin-bottom: 12px; }
+  audio { width: 100%; max-width: 600px; }
+  .downloads { display: flex; gap: 12px; margin-bottom: 16px; }
+  .downloads a {
+    padding: 6px 16px; background: #1a3020; color: #80c090; border: 1px solid #2a5038;
+    border-radius: 4px; text-decoration: none; font-size: 12px;
+  }
+  .downloads a:hover { background: #2a4030; }
+  #beat-map-preview {
+    background: #0a0a14; border: 1px solid #1a1a30; border-radius: 4px;
+    padding: 12px; max-height: 200px; overflow-y: auto; font-size: 11px;
+    white-space: pre; display: none; max-width: 700px;
+  }
+</style>
+</head>
+<body>
+
+<h2>Procedural Music Generator</h2>
+
+<div class="panel">
+  <div class="panel-title">Song Settings</div>
+  <div class="knobs">
+    <div class="knob">
+      <label>BPM <span id="bpm-val">122</span></label>
+      <input type="range" id="bpm" min="100" max="145" value="122" oninput="$('#bpm-val').textContent=this.value">
+    </div>
+    <div class="knob">
+      <label>Key</label>
+      <select id="key">
+        <option value="0">C minor</option>
+        <option value="2">D minor</option>
+        <option value="4">E minor</option>
+        <option value="5">F minor</option>
+        <option value="7">G minor</option>
+        <option value="9">A minor</option>
+        <option value="10">Bb minor</option>
+      </select>
+    </div>
+    <div class="knob">
+      <label>Progression</label>
+      <select id="progression">
+        <option value="0" selected>i → VI → III → VII (dark)</option>
+        <option value="auto">Auto (random)</option>
+        <option value="1">i → iv → VI → III (moody)</option>
+        <option value="2">i → VII → VI → VII (driving)</option>
+        <option value="3">i → III → VII → iv (hopeful)</option>
+        <option value="4">i → v → VI → iv (emotional)</option>
+      </select>
+    </div>
+    <div class="knob">
+      <label>Structure</label>
+      <select id="structure">
+        <option value="0" selected>Standard (intro→build→main→break→peak→outro)</option>
+        <option value="auto">Auto (random)</option>
+        <option value="1">Slow burn (intro→intro→build→main→peak→outro)</option>
+        <option value="2">Energetic (build→main→peak→break→peak→outro)</option>
+        <option value="3">Minimal (intro→build→main→build→main→outro)</option>
+        <option value="4">Epic (intro→build→build→main→peak→peak)</option>
+      </select>
+    </div>
+    <div class="knob">
+      <label>Seed <span id="seed-val"></span></label>
+      <input type="number" id="seed" value="" placeholder="random" style="width:100%">
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-title">Instrument Mix — click name to solo, slider for volume</div>
+  <div class="knobs">
+    <div class="knob">
+      <label><button class="mute-btn muted" data-inst="kick" onclick="toggleMute('kick')">Kick</button> <span id="vol-kick-val">0</span>%</label>
+      <input type="range" id="vol-kick" min="0" max="100" value="0" oninput="$('#vol-kick-val').textContent=this.value">
+    </div>
+    <div class="knob">
+      <label><button class="mute-btn muted" data-inst="snare" onclick="toggleMute('snare')">Snare</button> <span id="vol-snare-val">0</span>%</label>
+      <input type="range" id="vol-snare" min="0" max="100" value="0" oninput="$('#vol-snare-val').textContent=this.value">
+    </div>
+    <div class="knob">
+      <label><button class="mute-btn muted" data-inst="hat" onclick="toggleMute('hat')">Hi-hat</button> <span id="vol-hat-val">0</span>%</label>
+      <input type="range" id="vol-hat" min="0" max="100" value="0" oninput="$('#vol-hat-val').textContent=this.value">
+    </div>
+    <div class="knob">
+      <label><button class="mute-btn" data-inst="bass" onclick="toggleMute('bass')">Bass</button> <span id="vol-bass-val">80</span>%</label>
+      <input type="range" id="vol-bass" min="0" max="100" value="80" oninput="$('#vol-bass-val').textContent=this.value">
+    </div>
+    <div class="knob">
+      <label><button class="mute-btn" data-inst="pad" onclick="toggleMute('pad')">Pad</button> <span id="vol-pad-val">70</span>%</label>
+      <input type="range" id="vol-pad" min="0" max="100" value="70" oninput="$('#vol-pad-val').textContent=this.value">
+    </div>
+    <div class="knob">
+      <label><button class="mute-btn" data-inst="arp" onclick="toggleMute('arp')">Arp</button> <span id="vol-arp-val">60</span>%</label>
+      <input type="range" id="vol-arp" min="0" max="100" value="60" oninput="$('#vol-arp-val').textContent=this.value">
+    </div>
+    <div class="knob">
+      <label><button class="mute-btn" data-inst="melody" onclick="toggleMute('melody')">Melody</button> <span id="vol-melody-val">55</span>%</label>
+      <input type="range" id="vol-melody" min="0" max="100" value="55" oninput="$('#vol-melody-val').textContent=this.value">
+    </div>
+  </div>
+</div>
+
+<div class="actions">
+  <button id="btn-preview" onclick="previewLive()">Preview Live</button>
+  <button id="btn-generate" onclick="generate()">Generate + Download</button>
+  <button class="small" onclick="randomizeKnobs()">Randomize All</button>
+</div>
+
+<div id="status"></div>
+<div id="player"></div>
+<div class="downloads" id="downloads" style="display:none">
+  <a id="dl-wav" download>Download .wav</a>
+  <a id="dl-json" download>Download beat map .json</a>
+</div>
+<div id="beat-map-preview"></div>
+
+<script>
+const $ = sel => document.querySelector(sel);
+const $val = id => parseFloat($('#' + id).value);
+
+// ─── Seeded Random ───────────────────────────────────────────────────────
+
+let _seed = 42;
+function seedRng(s) { _seed = s; }
+function rng() {
+  _seed = (_seed * 16807 + 0) % 2147483647;
+  return (_seed - 1) / 2147483646;
+}
+function rngInt(min, max) { return min + Math.floor(rng() * (max - min + 1)); }
+function pick(arr) { return arr[Math.floor(rng() * arr.length)]; }
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// ─── Music Theory ────────────────────────────────────────────────────────
+
+// Multiple scales — each sounds distinctly different
+const SCALES = [
+  { name: 'minor-penta',   semitones: [0, 3, 5, 7, 10] },
+  { name: 'major-penta',   semitones: [0, 2, 4, 7, 9] },
+  { name: 'dorian',        semitones: [0, 2, 3, 5, 7, 9, 10] },
+  { name: 'blues',         semitones: [0, 3, 5, 6, 7, 10] },
+  { name: 'harmonic-min',  semitones: [0, 2, 3, 5, 7, 8, 11] },
+  { name: 'phrygian',      semitones: [0, 1, 3, 5, 7, 8, 10] },
+];
+
+function midiToFreq(midi) { return 440 * Math.pow(2, (midi - 69) / 12); }
+
+function scaleNote(rootMidi, scale, degree, octaveOffset) {
+  const len = scale.semitones.length;
+  const oct = Math.floor(degree / len);
+  const idx = ((degree % len) + len) % len;
+  return rootMidi + (oct + octaveOffset) * 12 + scale.semitones[idx];
+}
+
+// Chord progressions — intervals relative to root (semitones)
+// Each chord is [root offset, array of intervals from chord root]
+const PROGRESSIONS = [
+  // i → VI → III → VII (dark, classic minor)
+  { name: 'dark',      roots: [0, -4, -9, -2],  chords: [[0,3,7], [0,4,7], [0,4,7], [0,4,7]] },
+  // i → iv → VI → III (moody, descending feel)
+  { name: 'moody',     roots: [0, 5, -4, -9],   chords: [[0,3,7], [0,3,7], [0,4,7], [0,4,7]] },
+  // i → VII → VI → VII (driving, hypnotic)
+  { name: 'driving',   roots: [0, -2, -4, -2],  chords: [[0,3,7], [0,4,7], [0,4,7], [0,4,7]] },
+  // i → III → VII → iv (hopeful minor)
+  { name: 'hopeful',   roots: [0, 3, -2, 5],    chords: [[0,3,7], [0,4,7], [0,4,7], [0,3,7]] },
+  // i → v → VI → iv (emotional)
+  { name: 'emotional', roots: [0, 7, -4, 5],    chords: [[0,3,7], [0,3,7], [0,4,7], [0,3,7]] },
+];
+
+// ─── Song Structures ─────────────────────────────────────────────────────
+
+const STRUCTURES = [
+  // Standard
+  [
+    { name:'intro', bars:4, energy:0.15 }, { name:'build', bars:4, energy:0.45 },
+    { name:'main',  bars:8, energy:0.75 }, { name:'break', bars:4, energy:0.3 },
+    { name:'peak',  bars:8, energy:1.0 },  { name:'outro', bars:4, energy:0.1 },
+  ],
+  // Slow burn
+  [
+    { name:'intro', bars:4, energy:0.1 },  { name:'intro2', bars:4, energy:0.2 },
+    { name:'build', bars:4, energy:0.5 },  { name:'main',   bars:8, energy:0.75 },
+    { name:'peak',  bars:8, energy:1.0 },  { name:'outro',  bars:4, energy:0.15 },
+  ],
+  // Energetic
+  [
+    { name:'build', bars:4, energy:0.5 },  { name:'main',  bars:8, energy:0.8 },
+    { name:'peak',  bars:8, energy:1.0 },  { name:'break', bars:4, energy:0.35 },
+    { name:'peak2', bars:8, energy:0.95 }, { name:'outro', bars:4, energy:0.2 },
+  ],
+  // Minimal
+  [
+    { name:'intro', bars:4, energy:0.15 }, { name:'build', bars:4, energy:0.4 },
+    { name:'main',  bars:8, energy:0.65 }, { name:'build2',bars:4, energy:0.5 },
+    { name:'main2', bars:8, energy:0.7 },  { name:'outro', bars:4, energy:0.1 },
+  ],
+  // Epic
+  [
+    { name:'intro', bars:4, energy:0.1 },  { name:'build', bars:4, energy:0.4 },
+    { name:'build2',bars:4, energy:0.6 },  { name:'main',  bars:8, energy:0.85 },
+    { name:'peak',  bars:8, energy:1.0 },  { name:'peak2', bars:8, energy:0.95 },
+  ],
+];
+
+// ─── Drum Patterns — 3 variations per energy level ───────────────────────
+// 8 steps per bar (8th notes)
+
+const KICK_PATTERNS = {
+  low:  [ [1,0,0,0, 0,0,0,0], [1,0,0,0, 0,0,1,0], [0,0,0,0, 1,0,0,0] ],
+  mid:  [ [1,0,0,0, 1,0,0,0], [1,0,0,0, 0,0,1,0], [1,0,1,0, 0,0,0,0] ],
+  high: [ [1,0,0,0, 1,0,1,0], [1,0,1,0, 0,0,1,0], [1,0,0,1, 1,0,0,0] ],
+  peak: [ [1,0,1,0, 1,0,1,0], [1,0,0,1, 1,0,1,0], [1,1,0,0, 1,0,1,0] ],
+};
+
+const SNARE_PATTERNS = {
+  low:  [ [0,0,0,0, 0,0,0,0], [0,0,0,0, 0,0,0,0], [0,0,0,0, 1,0,0,0] ],
+  mid:  [ [0,0,0,0, 1,0,0,0], [0,0,0,0, 1,0,0,1], [0,0,1,0, 0,0,1,0] ],
+  high: [ [0,0,0,0, 1,0,0,0], [0,0,0,0, 1,0,0,1], [0,0,1,0, 1,0,0,0] ],
+  peak: [ [0,0,0,0, 1,0,0,1], [0,0,1,0, 1,0,0,1], [0,0,0,1, 1,0,1,0] ],
+};
+
+const HAT_PATTERNS = {
+  low:  [ [0,0,0,0, 0,0,0,0], [1,0,0,0, 0,0,0,0], [0,0,1,0, 0,0,1,0] ],
+  mid:  [ [1,0,1,0, 1,0,1,0], [1,0,0,1, 1,0,0,1], [1,1,0,0, 1,1,0,0] ],
+  high: [ [1,1,1,1, 1,1,1,0], [1,1,1,0, 1,1,1,1], [1,0,1,1, 1,0,1,1] ],
+  peak: [ [1,1,1,1, 1,1,1,1], [1,1,1,1, 1,0,1,1], [1,0,1,1, 1,1,1,0] ],
+};
+
+function energyLevel(energy) {
+  if (energy < 0.25) return 'low';
+  if (energy < 0.55) return 'mid';
+  if (energy < 0.85) return 'high';
+  return 'peak';
+}
+
+// ─── Note Generators (motif-based) ───────────────────────────────────────
+
+// Generate a short motif (4-8 notes) then repeat/vary it across bars
+function generateMotif(scale, length) {
+  const motif = [];
+  let degree = rngInt(0, scale.semitones.length - 1);
+  for (let i = 0; i < length; i++) {
+    motif.push(degree);
+    if (rng() < 0.7) degree += rng() < 0.5 ? 1 : -1;
+    else degree += rngInt(-2, 2);
+    degree = Math.max(0, Math.min(scale.semitones.length * 2 - 1, degree));
+  }
+  return motif;
+}
+
+function varyMotif(motif, amount) {
+  return motif.map(d => {
+    if (rng() < amount) return d + rngInt(-1, 1);
+    return d;
+  });
+}
+
+function generateMelody(rootMidi, scale, bars, energy) {
+  const notes = [];
+  const totalSteps = bars * 8;
+  const noteProbability = 0.1 + energy * 0.5;
+
+  // Create a motif and rhythm pattern
+  const motifLen = pick([4, 5, 6, 8]);
+  const baseMotif = generateMotif(scale, motifLen);
+
+  // Rhythm: which steps in a motif cycle have notes
+  const rhythmDensity = 0.3 + energy * 0.4;
+  const rhythm = [];
+  for (let i = 0; i < motifLen; i++) {
+    rhythm.push(i === 0 || rng() < rhythmDensity);
+  }
+
+  let motif = baseMotif;
+  for (let step = 0; step < totalSteps; step++) {
+    // Every 2 bars, vary the motif slightly
+    if (step > 0 && step % 16 === 0) {
+      motif = rng() < 0.3 ? baseMotif : varyMotif(baseMotif, 0.3);
+    }
+
+    const motifIdx = step % motifLen;
+
+    if (!rhythm[motifIdx] || rng() > noteProbability) {
+      notes.push(null);
+      continue;
+    }
+
+    notes.push(scaleNote(rootMidi, scale, motif[motifIdx], 1));
+  }
+  return notes;
+}
+
+// Bass patterns — different styles per song
+const BASS_STYLES = [
+  'sustained',   // long notes on beat 1
+  'pulse',       // steady eighth notes
+  'syncopated',  // offbeat accents
+  'walking',     // moves through scale
+];
+
+function generateBass(rootMidi, scale, prog, bars, energy) {
+  const notes = [];
+  const style = pick(BASS_STYLES);
+
+  for (let bar = 0; bar < bars; bar++) {
+    const chordRoot = rootMidi + prog.roots[bar % 4] - 12;
+
+    for (let step = 0; step < 8; step++) {
+      if (energy < 0.15) {
+        notes.push(step === 0 ? chordRoot : null);
+        continue;
+      }
+
+      let note = null;
+      if (style === 'sustained') {
+        if (step === 0 || (energy > 0.6 && step === 4)) note = chordRoot;
+      } else if (style === 'pulse') {
+        if (step % 2 === 0 || (energy > 0.7 && rng() < 0.4)) note = chordRoot;
+      } else if (style === 'syncopated') {
+        if (step === 0 || step === 3 || step === 6 || (step === 5 && rng() < 0.5)) {
+          note = rng() < 0.75 ? chordRoot : chordRoot + pick([5, 7]);
+        }
+      } else { // walking
+        if (step % 2 === 0 || (energy > 0.7 && rng() < 0.5)) {
+          const walkDegree = (bar * 4 + Math.floor(step / 2)) % scale.semitones.length;
+          note = rootMidi - 12 + scale.semitones[walkDegree];
+        }
+      }
+
+      // Energy gate
+      if (note != null && energy < 0.4 && step !== 0 && step !== 4) {
+        if (rng() > energy * 2) note = null;
+      }
+
+      notes.push(note);
+    }
+  }
+  return notes;
+}
+
+function generateArp(rootMidi, scale, prog, bars, energy) {
+  if (energy < 0.35) return new Array(bars * 8).fill(null);
+
+  const notes = [];
+  const style = rngInt(0, 3); // 0=up, 1=down, 2=updown, 3=random-chord
+  const octaveUp = rngInt(1, 2); // sometimes arp 2 octaves up
+
+  for (let bar = 0; bar < bars; bar++) {
+    const cr = rootMidi + prog.roots[bar % 4];
+    const intervals = prog.chords[bar % 4];
+    const chordNotes = intervals.map(i => cr + i + 12 * octaveUp);
+
+    for (let step = 0; step < 8; step++) {
+      if (rng() > (0.25 + energy * 0.5)) { notes.push(null); continue; }
+
+      let idx;
+      if (style === 0) idx = step % chordNotes.length;
+      else if (style === 1) idx = (chordNotes.length - 1) - (step % chordNotes.length);
+      else if (style === 2) {
+        const cycle = Math.max(1, chordNotes.length * 2 - 2);
+        const pos = step % cycle;
+        idx = pos < chordNotes.length ? pos : cycle - pos;
+      } else {
+        idx = Math.floor(rng() * chordNotes.length);
+      }
+      notes.push(chordNotes[Math.min(idx, chordNotes.length - 1)]);
+    }
+  }
+  return notes;
+}
+
+// ─── Audio Synthesis ─────────────────────────────────────────────────────
+
+function createNoiseBuffer(ctx, duration) {
+  const buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * duration), ctx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = rng() * 2 - 1;
+  return buf;
+}
+
+function scheduleKick(ctx, dest, time, vol) {
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.type = 'sine';
+  o.connect(g); g.connect(dest);
+  o.frequency.setValueAtTime(150, time);
+  o.frequency.exponentialRampToValueAtTime(0.01, time + 0.4);
+  g.gain.setValueAtTime(0, time);
+  g.gain.linearRampToValueAtTime(0.5 * vol, time + 0.003);
+  g.gain.exponentialRampToValueAtTime(0.001, time + 0.4);
+  o.start(time); o.stop(time + 0.45);
+}
+
+function scheduleSnare(ctx, dest, time, noiseBuf, vol) {
+  const noise = ctx.createBufferSource();
+  const nGain = ctx.createGain();
+  const hp = ctx.createBiquadFilter();
+  hp.type = 'highpass'; hp.frequency.value = 1200;
+  noise.buffer = noiseBuf;
+  noise.connect(hp); hp.connect(nGain); nGain.connect(dest);
+  nGain.gain.setValueAtTime(0.2 * vol, time);
+  nGain.gain.exponentialRampToValueAtTime(0.001, time + 0.12);
+  noise.start(time);
+
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.type = 'triangle'; o.frequency.value = 200;
+  o.connect(g); g.connect(dest);
+  g.gain.setValueAtTime(0.12 * vol, time);
+  g.gain.linearRampToValueAtTime(0.001, time + 0.07);
+  o.start(time); o.stop(time + 0.08);
+}
+
+function scheduleHat(ctx, dest, time, noiseBuf, vol) {
+  const src = ctx.createBufferSource();
+  const hp = ctx.createBiquadFilter();
+  const g = ctx.createGain();
+  hp.type = 'highpass'; hp.frequency.value = 8000;
+  src.buffer = noiseBuf;
+  src.connect(hp); hp.connect(g); g.connect(dest);
+  g.gain.setValueAtTime(0.07 * vol, time);
+  g.gain.exponentialRampToValueAtTime(0.001, time + 0.03);
+  src.start(time);
+}
+
+function scheduleBass(ctx, dest, time, midi, stepSec, vol, wave) {
+  const freq = midiToFreq(midi);
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.type = wave || 'sine'; o.frequency.value = freq;
+  o.connect(g); g.connect(dest);
+  g.gain.setValueAtTime(0, time);
+  g.gain.linearRampToValueAtTime(0.28 * vol, time + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.001, time + stepSec * 1.5);
+  o.start(time); o.stop(time + stepSec * 1.6);
+}
+
+// Pad timbres — different character per song
+const PAD_TIMBRES = [
+  { wave: 'sawtooth', detune: [-8, 8],   attack: 0.5, filterFreq: 1400 },
+  { wave: 'square',   detune: [-5, 5],   attack: 0.8, filterFreq: 800 },
+  { wave: 'triangle', detune: [-12, 12], attack: 0.3, filterFreq: 2000 },
+  { wave: 'sawtooth', detune: [-15, 15], attack: 1.0, filterFreq: 600 },
+  { wave: 'sine',     detune: [-3, 3],   attack: 0.2, filterFreq: 3000 },
+];
+
+function schedulePad(ctx, dest, time, rootMidi, chordIntervals, duration, vol, timbre) {
+  for (const interval of chordIntervals) {
+    const freq = midiToFreq(rootMidi + interval + 12);
+    for (const detune of timbre.detune) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = timbre.wave; o.frequency.value = freq; o.detune.value = detune;
+      o.connect(g); g.connect(dest);
+      const v = 0.022 * vol;
+      const atk = Math.min(timbre.attack, duration * 0.4);
+      g.gain.setValueAtTime(0, time);
+      g.gain.linearRampToValueAtTime(v, time + atk);
+      g.gain.setValueAtTime(v, time + duration - atk);
+      g.gain.linearRampToValueAtTime(0, time + duration);
+      o.start(time); o.stop(time + duration + 0.01);
+    }
+  }
+}
+
+function scheduleArp(ctx, dest, time, midi, stepSec, vol) {
+  const freq = midiToFreq(midi);
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass'; lp.frequency.value = 2500;
+  o.type = 'triangle'; o.frequency.value = freq;
+  o.connect(lp); lp.connect(g); g.connect(dest);
+  g.gain.setValueAtTime(0, time);
+  g.gain.linearRampToValueAtTime(0.05 * vol, time + 0.005);
+  g.gain.exponentialRampToValueAtTime(0.001, time + stepSec * 0.55);
+  o.start(time); o.stop(time + stepSec * 0.6);
+}
+
+function scheduleMelody(ctx, dest, time, midi, stepSec, vol, wave) {
+  const freq = midiToFreq(midi);
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass'; lp.frequency.value = 1800;
+  o.type = wave || 'sine'; o.frequency.value = freq;
+  o.connect(lp); lp.connect(g); g.connect(dest);
+  g.gain.setValueAtTime(0, time);
+  g.gain.linearRampToValueAtTime(0.06 * vol, time + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.001, time + stepSec * 1.2);
+  o.start(time); o.stop(time + stepSec * 1.3);
+}
+
+// ─── Build Song ──────────────────────────────────────────────────────────
+
+function buildSong(ctx, dest, config) {
+  seedRng(config.seed);
+
+  const bpm = config.bpm;
+  const beatSec = 60 / bpm;
+  const stepSec = beatSec / 2;
+  const barSec = beatSec * 4;
+  const rootMidi = 48 + config.keyOffset; // C3 + offset
+
+  const prog = config.progression;
+  const sections = config.sections;
+  const totalDuration = sections.reduce((s, sec) => s + sec.bars * barSec, 0);
+
+  const vol = config.volumes;
+
+  const beatMap = {
+    bpm, duration: totalDuration,
+    seed: config.seed, key: config.keyOffset,
+    progression: prog.name,
+    beats: [], downbeats: [], sections: [],
+  };
+
+  // Per-song randomized choices
+  const scale = pick(SCALES);
+  const padTimbre = pick(PAD_TIMBRES);
+  const melodyWave = pick(['sine', 'triangle', 'square']);
+  const bassWave = pick(['sine', 'triangle', 'sawtooth']);
+
+  console.log(`Song: scale=${scale.name} pad=${padTimbre.wave} melody=${melodyWave} bass=${bassWave}`);
+
+  const snareBuf = createNoiseBuffer(ctx, 0.15);
+  const hatBuf = createNoiseBuffer(ctx, 0.06);
+
+  // Per-instrument gain nodes for live mute/solo
+  const instGains = {};
+  for (const inst of ['kick','snare','hat','bass','pad','arp','melody']) {
+    const g = ctx.createGain();
+    g.gain.value = vol[inst];
+    instGains[inst] = g;
+  }
+
+  // Master bus
+  const comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -15;
+  comp.knee.value = 8;
+  comp.ratio.value = 4;
+  comp.attack.value = 0.003;
+  comp.release.value = 0.2;
+  comp.connect(dest);
+  for (const inst of ['kick','snare','hat','bass','arp','melody']) {
+    instGains[inst].connect(comp);
+  }
+
+  // Pad sub-bus
+  const padGain = ctx.createGain();
+  const padFilter = ctx.createBiquadFilter();
+  padFilter.type = 'lowpass'; padFilter.frequency.value = padTimbre.filterFreq;
+  padGain.gain.value = 0.7;
+  instGains.pad.connect(padGain);
+  padGain.connect(padFilter); padFilter.connect(comp);
+
+  let currentTime = 0;
+
+  // Pick drum patterns per energy level once per song (for consistency within a song)
+  const drumChoice = {
+    low:  rngInt(0, 2), mid:  rngInt(0, 2),
+    high: rngInt(0, 2), peak: rngInt(0, 2),
+  };
+
+  for (const section of sections) {
+    const level = energyLevel(section.energy);
+    const sectionStart = currentTime;
+
+    // Drum patterns for this section — occasionally switch mid-section
+    const kickPat  = KICK_PATTERNS[level][drumChoice[level]];
+    const snarePat = SNARE_PATTERNS[level][drumChoice[level]];
+    const hatPat   = HAT_PATTERNS[level][drumChoice[level]];
+
+    // Generate melodic content
+    const melody = generateMelody(rootMidi, scale, section.bars, section.energy);
+    const bass   = generateBass(rootMidi, scale, prog, section.bars, section.energy);
+    const arp    = generateArp(rootMidi, scale, prog, section.bars, section.energy);
+
+    // Pads — always play (even in intro for warmth), volume scales with energy
+    for (let bar = 0; bar < section.bars; bar++) {
+      const chordIdx = bar % 4;
+      const cr = rootMidi + prog.roots[chordIdx];
+      const padTime = sectionStart + bar * barSec;
+      const padVol = vol.pad * (0.4 + section.energy * 0.6);
+      schedulePad(ctx, instGains.pad, padTime, cr, prog.chords[chordIdx], barSec, padVol, padTimbre);
+    }
+
+    // Step scheduling
+    for (let bar = 0; bar < section.bars; bar++) {
+      for (let step = 0; step < 8; step++) {
+        const time = sectionStart + bar * barSec + step * stepSec;
+        const noteIdx = bar * 8 + step;
+
+        // Beat map
+        if (step % 2 === 0) beatMap.beats.push(Math.round(time * 1000) / 1000);
+        if (step === 0) beatMap.downbeats.push(Math.round(time * 1000) / 1000);
+
+        // Drums — skip kick in very low energy to avoid bare kick starts
+        if (section.energy >= 0.15 && kickPat[step])  scheduleKick(ctx, instGains.kick, time, 1);
+        if (snarePat[step]) scheduleSnare(ctx, instGains.snare, time, snareBuf, 1);
+        if (hatPat[step])   scheduleHat(ctx, instGains.hat, time, hatBuf, 1);
+
+        // Bass
+        if (bass[noteIdx] != null) scheduleBass(ctx, instGains.bass, time, bass[noteIdx], stepSec, 1, bassWave);
+
+        // Arp
+        if (arp[noteIdx] != null) scheduleArp(ctx, instGains.arp, time, arp[noteIdx], stepSec, 1);
+
+        // Melody — only above 0.4 energy
+        if (section.energy >= 0.4 && melody[noteIdx] != null) {
+          scheduleMelody(ctx, instGains.melody, time, melody[noteIdx], stepSec, 1, melodyWave);
+        }
+      }
+    }
+
+    currentTime += section.bars * barSec;
+    beatMap.sections.push({
+      name: section.name,
+      start: Math.round(sectionStart * 1000) / 1000,
+      end: Math.round(currentTime * 1000) / 1000,
+      energy: section.energy,
+    });
+  }
+
+  return { beatMap, instGains };
+}
+
+// ─── Audio Analysis ──────────────────────────────────────────────────────
+
+function analyzeBuffer(buffer) {
+  const L = buffer.getChannelData(0);
+  const R = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : L;
+  let peakL = 0, peakR = 0, sumL = 0, sumR = 0;
+  let clippedCount = 0;
+  const clipRegions = [];
+  let inClip = false, clipStart = 0;
+  const sr = buffer.sampleRate;
+
+  for (let i = 0; i < buffer.length; i++) {
+    const absL = Math.abs(L[i]);
+    const absR = Math.abs(R[i]);
+    if (absL > peakL) peakL = absL;
+    if (absR > peakR) peakR = absR;
+    sumL += L[i] * L[i];
+    sumR += R[i] * R[i];
+
+    const clipping = absL > 0.99 || absR > 0.99;
+    if (clipping) {
+      clippedCount++;
+      if (!inClip) { clipStart = i; inClip = true; }
+    } else if (inClip) {
+      clipRegions.push({ startSec: (clipStart / sr).toFixed(3), endSec: (i / sr).toFixed(3), samples: i - clipStart });
+      inClip = false;
+    }
+  }
+  if (inClip) clipRegions.push({ startSec: (clipStart / sr).toFixed(3), endSec: (buffer.length / sr).toFixed(3), samples: buffer.length - clipStart });
+
+  return { peakL, peakR, rmsL: Math.sqrt(sumL / buffer.length), rmsR: Math.sqrt(sumR / buffer.length), clippedCount, clipRegions };
+}
+
+// ─── WAV Encoding ────────────────────────────────────────────────────────
+
+function audioBufferToWav(buffer) {
+  const numCh = buffer.numberOfChannels;
+  const sr = buffer.sampleRate;
+  const blockAlign = numCh * 2;
+  const dataSize = buffer.length * blockAlign;
+
+  const buf = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buf);
+
+  function writeStr(offset, str) { for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i)); }
+
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeStr(8, 'WAVE');  writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, numCh, true);
+  view.setUint32(24, sr, true);
+  view.setUint32(28, sr * blockAlign, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, 16, true);
+  writeStr(36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  const channels = [];
+  for (let ch = 0; ch < numCh; ch++) channels.push(buffer.getChannelData(ch));
+
+  let offset = 44;
+  for (let i = 0; i < buffer.length; i++) {
+    for (let ch = 0; ch < numCh; ch++) {
+      const s = Math.max(-1, Math.min(1, channels[ch][i]));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      offset += 2;
+    }
+  }
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
+// ─── UI ──────────────────────────────────────────────────────────────────
+
+const statusEl = $('#status');
+const playerEl = $('#player');
+const downloadsEl = $('#downloads');
+const previewEl = $('#beat-map-preview');
+let songCount = 0;
+
+function setStatus(msg) { statusEl.textContent = msg; }
+
+function getConfig() {
+  const seedInput = $('#seed').value.trim();
+  const seed = seedInput ? parseInt(seedInput) : (Date.now() % 100000);
+
+  const progSelect = $('#progression').value;
+  const structSelect = $('#structure').value;
+
+  // For 'auto', use seed to pick
+  seedRng(seed);
+  const progIdx = progSelect === 'auto' ? rngInt(0, PROGRESSIONS.length - 1) : parseInt(progSelect);
+  const structIdx = structSelect === 'auto' ? rngInt(0, STRUCTURES.length - 1) : parseInt(structSelect);
+
+  return {
+    seed,
+    bpm: $val('bpm'),
+    keyOffset: parseInt($('#key').value),
+    progression: PROGRESSIONS[progIdx],
+    sections: STRUCTURES[structIdx],
+    volumes: {
+      kick:   muted.has('kick')   ? 0 : $val('vol-kick') / 100,
+      snare:  muted.has('snare')  ? 0 : $val('vol-snare') / 100,
+      hat:    muted.has('hat')    ? 0 : $val('vol-hat') / 100,
+      bass:   muted.has('bass')   ? 0 : $val('vol-bass') / 100,
+      pad:    muted.has('pad')    ? 0 : $val('vol-pad') / 100,
+      arp:    muted.has('arp')    ? 0 : $val('vol-arp') / 100,
+      melody: muted.has('melody') ? 0 : $val('vol-melody') / 100,
+    },
+  };
+}
+
+const ALL_INST = ['kick','snare','hat','bass','pad','arp','melody'];
+const muted = new Set(['kick','snare','hat']);
+
+function toggleMute(inst) {
+  const btn = $(`.mute-btn[data-inst="${inst}"]`);
+  if (muted.has(inst)) {
+    muted.delete(inst);
+    btn.classList.remove('muted');
+  } else {
+    muted.add(inst);
+    btn.classList.add('muted');
+  }
+  // Update solo highlighting
+  const activeCount = ALL_INST.length - muted.size;
+  for (const i of ALL_INST) {
+    const b = $(`.mute-btn[data-inst="${i}"]`);
+    b.classList.toggle('solo', activeCount === 1 && !muted.has(i));
+  }
+  // Live update — adjust gain node in real-time
+  if (liveGains && liveGains[inst]) {
+    const vol = muted.has(inst) ? 0 : $val('vol-' + inst) / 100;
+    liveGains[inst].gain.setTargetAtTime(vol, liveCtx.currentTime, 0.02);
+  }
+}
+
+function randomizeKnobs() {
+  const s = Date.now() % 100000;
+  seedRng(s);
+
+  // Only randomize seed — keep structure/progression/key/BPM fixed for isolation
+  for (const inst of ['bass','pad','arp','melody']) {
+    const v = rngInt(40, 100);
+    $(`#vol-${inst}`).value = v;
+    $(`#vol-${inst}-val`).textContent = v;
+  }
+
+  $('#seed').value = '';
+}
+
+async function generate() {
+  const btn = $('#btn-generate');
+  btn.disabled = true;
+  setStatus('Rendering...');
+  songCount++;
+
+  // Yield to UI
+  await new Promise(r => setTimeout(r, 10));
+
+  try {
+    const config = getConfig();
+    const sections = config.sections;
+    const barSec = (60 / config.bpm) * 4;
+    const totalDuration = sections.reduce((s, sec) => s + sec.bars * barSec, 0);
+
+    const sampleRate = 44100;
+    const length = Math.ceil(totalDuration * sampleRate);
+    const ctx = new OfflineAudioContext(2, length, sampleRate);
+
+    const masterGain = ctx.createGain();
+    masterGain.gain.value = 1.4;
+    masterGain.connect(ctx.destination);
+
+    const { beatMap } = buildSong(ctx, masterGain, config);
+
+    const buffer = await ctx.startRendering();
+
+    const analysis = analyzeBuffer(buffer);
+    console.log('=== Audio Analysis ===');
+    console.log(`Peak L: ${analysis.peakL.toFixed(4)} (${(20*Math.log10(analysis.peakL)).toFixed(1)} dB)`);
+    console.log(`Peak R: ${analysis.peakR.toFixed(4)} (${(20*Math.log10(analysis.peakR)).toFixed(1)} dB)`);
+    console.log(`RMS L:  ${analysis.rmsL.toFixed(4)} (${(20*Math.log10(analysis.rmsL)).toFixed(1)} dB)`);
+    console.log(`RMS R:  ${analysis.rmsR.toFixed(4)} (${(20*Math.log10(analysis.rmsR)).toFixed(1)} dB)`);
+    console.log(`Clipped: ${analysis.clippedCount} / ${buffer.length} (${(analysis.clippedCount/buffer.length*100).toFixed(3)}%)`);
+    if (analysis.clipRegions.length) console.log('Clip regions:', analysis.clipRegions.slice(0, 10));
+    if (analysis.clippedCount > 0) console.warn(`CLIPPING — ${analysis.clippedCount} samples exceed ±0.99`);
+
+    const wavBlob = audioBufferToWav(buffer);
+    const url = URL.createObjectURL(wavBlob);
+    playerEl.innerHTML = `<audio controls src="${url}"></audio>`;
+
+    const num = String(songCount).padStart(3, '0');
+    const dlWav = $('#dl-wav');
+    dlWav.href = url;
+    dlWav.download = `procedural_${num}.wav`;
+
+    const jsonBlob = new Blob([JSON.stringify(beatMap, null, 2)], { type: 'application/json' });
+    const dlJson = $('#dl-json');
+    dlJson.href = URL.createObjectURL(jsonBlob);
+    dlJson.download = `procedural_${num}.json`;
+
+    downloadsEl.style.display = 'flex';
+    previewEl.textContent = JSON.stringify(beatMap, null, 2);
+    previewEl.style.display = 'block';
+
+    const peakDb = (20*Math.log10(Math.max(analysis.peakL, analysis.peakR))).toFixed(1);
+    setStatus(`Generated #${songCount} — seed:${config.seed} ${config.bpm}BPM ${config.progression.name} ${beatMap.duration.toFixed(1)}s peak:${peakDb}dB clip:${analysis.clippedCount}`);
+  } catch (err) {
+    setStatus(`Error: ${err.message}`);
+    console.error(err);
+  }
+
+  btn.disabled = false;
+}
+
+let liveCtx = null;
+let liveGains = null;
+
+async function previewLive() {
+  stopPreview();
+
+  const config = getConfig();
+  const sections = config.sections;
+  const barSec = (60 / config.bpm) * 4;
+  const totalDuration = sections.reduce((s, sec) => s + sec.bars * barSec, 0);
+
+  liveCtx = new AudioContext();
+  const masterGain = liveCtx.createGain();
+  masterGain.gain.value = 1.4;
+  masterGain.connect(liveCtx.destination);
+
+  const { instGains } = buildSong(liveCtx, masterGain, config);
+  liveGains = instGains;
+
+  $('#btn-preview').textContent = 'Stop';
+  $('#btn-preview').onclick = stopPreview;
+  setStatus(`Playing — seed:${config.seed} ${config.bpm}BPM ${config.progression.name} ${totalDuration.toFixed(1)}s`);
+
+  setTimeout(() => { if (liveCtx) stopPreview(); }, (totalDuration + 1) * 1000);
+}
+
+function stopPreview() {
+  if (liveCtx) { liveCtx.close(); liveCtx = null; liveGains = null; }
+  $('#btn-preview').textContent = 'Preview Live';
+  $('#btn-preview').onclick = previewLive;
+  setStatus('Stopped.');
+}
+</script>
+</body>
+</html>

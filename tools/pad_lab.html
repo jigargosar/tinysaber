@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pad Lab</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a12; color: #c8c8e0; font-family: monospace; padding: 24px; }
+  h2 { color: #a080d0; margin-bottom: 16px; font-size: 18px; }
+  button { padding: 10px 24px; background: #2a1848; color: #c8b0f0; border: 1px solid #4a2878; border-radius: 4px; font-family: monospace; font-size: 14px; cursor: pointer; margin-right: 8px; }
+  button:hover { background: #3a2060; }
+  .controls { margin-bottom: 16px; }
+  #status { color: #8070a0; font-size: 13px; margin-bottom: 16px; }
+  #log { background: #0e0e1a; border: 1px solid #1a1a30; border-radius: 4px; padding: 12px; font-size: 12px; white-space: pre; max-height: 400px; overflow-y: auto; }
+</style>
+</head>
+<body>
+
+<h2>Pad Lab — isolated pad only</h2>
+
+<div class="controls">
+  <button onclick="play()">Play</button>
+  <button onclick="stop()">Stop</button>
+  <button onclick="play()">New Seed</button>
+</div>
+<div id="status"></div>
+<div id="log"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/tonal/browser/tonal.min.js"></script>
+<script src="https://unpkg.com/tone"></script>
+<script>
+const logEl = document.getElementById('log');
+const statusEl = document.getElementById('status');
+function log(msg) {
+  const div = document.createElement('div');
+  div.textContent = msg;
+  div.style.padding = '2px 4px';
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+function clearLog() { logEl.innerHTML = ''; }
+
+// ─── Seeded Random ───────────────────────────────────────────────────────
+let _seed = 42;
+function seedRng(s) { _seed = s; }
+function rng() { _seed = (_seed * 16807) % 2147483647; return (_seed - 1) / 2147483646; }
+function rngInt(min, max) { return min + Math.floor(rng() * (max - min + 1)); }
+function pick(arr) { return arr[Math.floor(rng() * arr.length)]; }
+
+// ─── Constants ───────────────────────────────────────────────────────────
+const BPM = 122;
+const PHRASE_LENGTH = 4;           // 4-chord phrase
+const PHRASE_REPEATS = 4;          // repeated 4 times = 16 bars
+const TOTAL_BARS = PHRASE_LENGTH * PHRASE_REPEATS;
+const KEY_POOL = ['C', 'Db', 'D', 'Eb', 'E', 'F'];
+const VOICE_RANGE = ['C3', 'C5'];
+
+// ─── Markov Transition Matrix ────────────────────────────────────────────
+// Roman numerals for natural minor. Skip ii° (harsh for pads).
+// Weights favor subdominant→dominant→tonic motion.
+const MARKOV = {
+  'Im':    [['bIII', 2], ['IVm', 3], ['Vm', 1], ['bVI', 3], ['bVII', 2]],
+  'bIII':  [['Im', 1],   ['IVm', 3], ['bVI', 2], ['bVII', 3]],
+  'IVm':   [['Im', 2],   ['bIII', 1], ['Vm', 2], ['bVI', 1], ['bVII', 3]],
+  'Vm':    [['Im', 3],   ['IVm', 1], ['bVI', 3]],
+  'bVI':   [['Im', 1],   ['bIII', 2], ['IVm', 2], ['bVII', 3]],
+  'bVII':  [['Im', 3],   ['bIII', 2], ['IVm', 1], ['bVI', 2]],
+};
+
+function markovNext(current) {
+  const transitions = MARKOV[current];
+  const totalWeight = transitions.reduce((sum, [, w]) => sum + w, 0);
+  let r = rng() * totalWeight;
+  for (const [target, weight] of transitions) {
+    r -= weight;
+    if (r <= 0) return target;
+  }
+  return transitions[transitions.length - 1][0];
+}
+
+function generatePhrase() {
+  const walk = ['Im']; // always start on tonic
+  for (let i = 1; i < PHRASE_LENGTH; i++) {
+    walk.push(markovNext(walk[i - 1]));
+  }
+  return walk;
+}
+
+// ─── Voice Leading (minimal total movement) ─────────────────────────────
+
+function minimalMovement(voicings, lastVoicing) {
+  if (!lastVoicing || !lastVoicing.length) return voicings[0];
+  const movement = (v) =>
+    v.reduce((sum, note, i) => {
+      const prev = i < lastVoicing.length ? lastVoicing[i] : lastVoicing[lastVoicing.length - 1];
+      return sum + Math.abs((Tonal.Note.midi(note) || 0) - (Tonal.Note.midi(prev) || 0));
+    }, 0);
+  return voicings.slice().sort((a, b) => movement(a) - movement(b))[0];
+}
+
+// ─── Tone.js State ───────────────────────────────────────────────────────
+
+let synth = null;
+let chorus = null;
+let filter = null;
+let reverb = null;
+let part = null;
+let highlightId = null;
+
+function disposeAudio() {
+  const transport = Tone.getTransport();
+  transport.stop();
+  transport.cancel();
+
+  if (part) { part.dispose(); part = null; }
+  if (synth) { synth.dispose(); synth = null; }
+  if (chorus) { chorus.dispose(); chorus = null; }
+  if (filter) { filter.dispose(); filter = null; }
+  if (reverb) { reverb.dispose(); reverb = null; }
+  if (highlightId != null) {
+    transport.clear(highlightId);
+    highlightId = null;
+  }
+}
+
+// ─── Play / Stop ─────────────────────────────────────────────────────────
+
+async function play() {
+  stop();
+  clearLog();
+
+  await Tone.start();
+
+  const seed = Date.now() % 100000;
+  seedRng(seed);
+
+  // Pick key
+  const tonic = pick(KEY_POOL);
+
+  // Generate a 4-chord Markov phrase (roman numerals)
+  const phrase = generatePhrase();
+
+  // Convert roman numerals → concrete chord symbols via Tonal.Progression
+  const chordSymbols = Tonal.Progression.fromRomanNumerals(tonic, phrase);
+
+  // Voice the 4-chord phrase using Tonal.Voicing with smooth voice leading
+  const dictionary = Tonal.VoicingDictionary.triads;
+  let lastVoicing = null;
+  const phraseVoicings = []; // array of note-name arrays
+
+  for (const symbol of chordSymbols) {
+    // Tonal.Voicing.search → all possible voicings in range
+    const candidates = Tonal.Voicing.search(symbol, VOICE_RANGE, dictionary);
+    if (candidates.length === 0) {
+      // Fallback: use Voicing.get which handles more chord types
+      const v = Tonal.Voicing.get(symbol, VOICE_RANGE, dictionary, Tonal.VoiceLeading.topNoteDiff, lastVoicing);
+      phraseVoicings.push(v);
+      lastVoicing = v;
+    } else {
+      // Pick voicing with minimal total movement from previous
+      const chosen = minimalMovement(candidates, lastVoicing);
+      phraseVoicings.push(chosen);
+      lastVoicing = chosen;
+    }
+  }
+
+  // Repeat phrase 4 times → 16 bars
+  const barData = [];
+  for (let repeat = 0; repeat < PHRASE_REPEATS; repeat++) {
+    for (let i = 0; i < PHRASE_LENGTH; i++) {
+      barData.push({
+        symbol: chordSymbols[i],
+        numeral: phrase[i],
+        voiced: phraseVoicings[i],
+      });
+    }
+  }
+
+  // Log
+  log(`Seed: ${seed}`);
+  log(`Key: ${tonic} minor`);
+  log(`Phrase: ${phrase.join(' → ')}`);
+  log(`Chords: ${chordSymbols.join(' → ')}`);
+  log(`BPM: ${BPM}  Bars: ${TOTAL_BARS}  (${PHRASE_LENGTH}-chord phrase x${PHRASE_REPEATS})`);
+  log('');
+
+  const barEls = [];
+  for (let bar = 0; bar < TOTAL_BARS; bar++) {
+    const b = barData[bar];
+    const noteStr = b.voiced.join(' ');
+    const line = `Bar ${String(bar).padStart(2)}: ${b.numeral.padEnd(5)} ${b.symbol.padEnd(6)} →  ${noteStr}`;
+
+    const span = document.createElement('div');
+    span.textContent = line;
+    span.style.padding = '2px 4px';
+    span.style.borderRadius = '2px';
+    logEl.appendChild(span);
+    barEls.push(span);
+  }
+
+  // Create synth + effects
+  synth = new Tone.PolySynth(Tone.Synth, {
+    oscillator: { type: 'fatsawtooth', count: 3, spread: 30 },
+    envelope: { attack: 0.8, decay: 0.3, sustain: 0.7, release: 2.0 },
+  });
+
+  chorus = new Tone.Chorus({ frequency: 0.5, delayTime: 3.5, depth: 0.7, wet: 0.4 }).start();
+  filter = new Tone.Filter({ frequency: 1800, type: 'lowpass', rolloff: -12 });
+  reverb = new Tone.Reverb({ decay: 4, wet: 0.5 });
+
+  synth.chain(chorus, filter, reverb, Tone.getDestination());
+
+  // Schedule chords via Part
+  const events = barData.map((b, bar) => {
+    return [Tone.Time({ '1m': bar }).toSeconds(), b.voiced];
+  });
+
+  part = new Tone.Part((time, notes) => {
+    synth.triggerAttackRelease(notes, '1m', time);
+  }, events);
+  part.start(0);
+
+  // Bar highlighting synced to Transport
+  const transport = Tone.getTransport();
+
+  highlightId = transport.scheduleRepeat((time) => {
+    Tone.getDraw().schedule(() => {
+      const pos = transport.position;
+      const currentBar = parseInt(pos.split(':')[0], 10);
+      for (let i = 0; i < barEls.length; i++) {
+        if (i === currentBar) {
+          barEls[i].style.background = '#2a1848';
+          barEls[i].style.color = '#e0c0ff';
+          barEls[i].scrollIntoView({ block: 'nearest' });
+        } else {
+          barEls[i].style.background = 'none';
+          barEls[i].style.color = '#c8c8e0';
+        }
+      }
+    }, time);
+  }, '1m');
+
+  // Stop after 16 bars
+  transport.schedule(() => {
+    stop();
+  }, Tone.Time({ '1m': TOTAL_BARS }).toSeconds());
+
+  transport.bpm.value = BPM;
+  transport.start();
+
+  statusEl.textContent = `Playing seed ${seed}...`;
+}
+
+function stop() {
+  disposeAudio();
+  statusEl.textContent = 'Stopped.';
+}
+</script>
+</body>
+</html>

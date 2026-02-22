@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pad Synth Lab</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a12; color: #c8c8e0; font-family: monospace; padding: 24px; }
+  h2 { color: #a080d0; margin-bottom: 12px; font-size: 18px; }
+
+  .panel {
+    background: #0e0e1a; border: 1px solid #1a1a30; border-radius: 6px;
+    padding: 16px; margin-bottom: 16px;
+  }
+  .panel-title { color: #8070a0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+
+  .knobs { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+  .knob { display: flex; flex-direction: column; gap: 4px; }
+  .knob label { font-size: 11px; color: #8878a8; display: flex; justify-content: space-between; }
+  .knob input[type=range] {
+    width: 100%; accent-color: #6a40a0; height: 6px;
+    -webkit-appearance: none; background: #1a1830; border-radius: 3px; outline: none;
+  }
+  .knob input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px;
+    background: #8060c0; border-radius: 50%; cursor: pointer;
+  }
+  .knob select, .knob input[type=number] {
+    background: #1a1830; color: #c8c8e0; border: 1px solid #2a2848;
+    border-radius: 3px; padding: 4px 6px; font-family: monospace; font-size: 12px;
+  }
+
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  button {
+    padding: 10px 24px; background: #2a1848; color: #c8b0f0; border: 1px solid #4a2878;
+    border-radius: 4px; font-family: monospace; font-size: 14px; cursor: pointer;
+  }
+  button:hover { background: #3a2060; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  button.small { padding: 6px 14px; font-size: 12px; }
+
+  #status { margin-bottom: 12px; color: #8070a0; font-size: 13px; min-height: 18px; }
+  #player { margin-bottom: 12px; }
+  audio { width: 100%; max-width: 600px; }
+  .downloads { display: flex; gap: 12px; margin-bottom: 16px; }
+  .downloads a {
+    padding: 6px 16px; background: #1a3020; color: #80c090; border: 1px solid #2a5038;
+    border-radius: 4px; text-decoration: none; font-size: 12px;
+  }
+  .downloads a:hover { background: #2a4030; }
+
+  #log {
+    background: #0a0a14; border: 1px solid #1a1a30; border-radius: 4px;
+    padding: 12px; font-size: 12px; white-space: pre; max-height: 400px; overflow-y: auto;
+  }
+</style>
+</head>
+<body>
+
+<h2>Pad Synth Lab</h2>
+
+<div class="panel">
+  <div class="panel-title">Song Settings</div>
+  <div class="knobs">
+    <div class="knob">
+      <label>BPM <span id="bpm-val">122</span></label>
+      <input type="range" id="bpm" min="60" max="145" value="122" oninput="$('#bpm-val').textContent=this.value">
+    </div>
+    <div class="knob">
+      <label>Key</label>
+      <select id="key">
+        <option value="C" selected>C minor</option>
+        <option value="Db">Db minor</option>
+        <option value="D">D minor</option>
+        <option value="Eb">Eb minor</option>
+        <option value="E">E minor</option>
+        <option value="F">F minor</option>
+      </select>
+    </div>
+    <div class="knob">
+      <label>Phrase Length</label>
+      <select id="phrase-len">
+        <option value="2">2 chords</option>
+        <option value="4" selected>4 chords</option>
+        <option value="8">8 chords</option>
+      </select>
+    </div>
+    <div class="knob">
+      <label>Repeats</label>
+      <select id="repeats">
+        <option value="2">2x</option>
+        <option value="4" selected>4x</option>
+        <option value="8">8x</option>
+      </select>
+    </div>
+    <div class="knob">
+      <label>Seed <span id="seed-val"></span></label>
+      <input type="number" id="seed" value="" placeholder="random" style="width:100%">
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-title">Pad Sound</div>
+  <div class="knobs">
+    <div class="knob">
+      <label>Filter <span id="filter-val">1800</span> Hz</label>
+      <input type="range" id="filter-freq" min="200" max="5000" value="1800" step="50" oninput="$('#filter-val').textContent=this.value">
+    </div>
+    <div class="knob">
+      <label>Reverb Decay <span id="reverb-val">4.0</span>s</label>
+      <input type="range" id="reverb-decay" min="1" max="12" value="4" step="0.5" oninput="$('#reverb-val').textContent=parseFloat(this.value).toFixed(1)">
+    </div>
+    <div class="knob">
+      <label>Reverb Mix <span id="reverb-mix-val">50</span>%</label>
+      <input type="range" id="reverb-mix" min="0" max="100" value="50" oninput="$('#reverb-mix-val').textContent=this.value">
+    </div>
+    <div class="knob">
+      <label>Chorus Depth <span id="chorus-val">70</span>%</label>
+      <input type="range" id="chorus-depth" min="0" max="100" value="70" oninput="$('#chorus-val').textContent=this.value">
+    </div>
+    <div class="knob">
+      <label>Attack <span id="attack-val">0.8</span>s</label>
+      <input type="range" id="attack" min="0.1" max="3.0" value="0.8" step="0.1" oninput="$('#attack-val').textContent=parseFloat(this.value).toFixed(1)">
+    </div>
+    <div class="knob">
+      <label>Release <span id="release-val">2.0</span>s</label>
+      <input type="range" id="release" min="0.5" max="6.0" value="2.0" step="0.5" oninput="$('#release-val').textContent=parseFloat(this.value).toFixed(1)">
+    </div>
+    <div class="knob">
+      <label>Oscillator</label>
+      <select id="osc-type">
+        <option value="fatsawtooth" selected>Fat Sawtooth</option>
+        <option value="fatsquare">Fat Square</option>
+        <option value="fattriangle">Fat Triangle</option>
+        <option value="fatsine">Fat Sine</option>
+      </select>
+    </div>
+    <div class="knob">
+      <label>Spread <span id="spread-val">30</span></label>
+      <input type="range" id="spread" min="0" max="100" value="30" oninput="$('#spread-val').textContent=this.value">
+    </div>
+  </div>
+</div>
+
+<div class="actions">
+  <button id="btn-preview" onclick="previewLive()">Preview Live</button>
+  <button id="btn-generate" onclick="generate()">Generate + Download</button>
+  <button class="small" onclick="randomizeAll()">Randomize All</button>
+</div>
+
+<div id="status"></div>
+<div id="player"></div>
+<div class="downloads" id="downloads" style="display:none">
+  <a id="dl-wav" download>Download .wav</a>
+</div>
+<div id="log"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/tonal/browser/tonal.min.js"></script>
+<script src="https://unpkg.com/tone"></script>
+<script>
+const $ = sel => document.querySelector(sel);
+const $val = id => parseFloat($('#' + id).value);
+
+const logEl = $('#log');
+const statusEl = $('#status');
+const playerEl = $('#player');
+const downloadsEl = $('#downloads');
+
+function log(msg) {
+  const div = document.createElement('div');
+  div.textContent = msg;
+  div.style.padding = '2px 4px';
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+  return div;
+}
+function clearLog() { logEl.innerHTML = ''; }
+
+// ─── Seeded Random ───────────────────────────────────────────────────────
+let _seed = 42;
+function seedRng(s) { _seed = s; }
+function rng() { _seed = (_seed * 16807) % 2147483647; return (_seed - 1) / 2147483646; }
+function rngInt(min, max) { return min + Math.floor(rng() * (max - min + 1)); }
+function pick(arr) { return arr[Math.floor(rng() * arr.length)]; }
+
+// ─── Markov Transition Matrix ────────────────────────────────────────────
+// Roman numerals for natural minor. Skip ii° (harsh for pads).
+const MARKOV = {
+  'Im':    [['bIII', 2], ['IVm', 3], ['Vm', 1], ['bVI', 3], ['bVII', 2]],
+  'bIII':  [['Im', 1],   ['IVm', 3], ['bVI', 2], ['bVII', 3]],
+  'IVm':   [['Im', 2],   ['bIII', 1], ['Vm', 2], ['bVI', 1], ['bVII', 3]],
+  'Vm':    [['Im', 3],   ['IVm', 1], ['bVI', 3]],
+  'bVI':   [['Im', 1],   ['bIII', 2], ['IVm', 2], ['bVII', 3]],
+  'bVII':  [['Im', 3],   ['bIII', 2], ['IVm', 1], ['bVI', 2]],
+};
+
+function markovNext(current) {
+  const transitions = MARKOV[current];
+  const totalWeight = transitions.reduce((sum, [, w]) => sum + w, 0);
+  let r = rng() * totalWeight;
+  for (const [target, weight] of transitions) {
+    r -= weight;
+    if (r <= 0) return target;
+  }
+  return transitions[transitions.length - 1][0];
+}
+
+function generatePhrase(length) {
+  const walk = ['Im'];
+  for (let i = 1; i < length; i++) {
+    walk.push(markovNext(walk[i - 1]));
+  }
+  return walk;
+}
+
+// ─── Voice Leading (minimal total movement) ─────────────────────────────
+
+function minimalMovement(voicings, lastVoicing) {
+  if (!lastVoicing || !lastVoicing.length) return voicings[0];
+  const movement = (v) =>
+    v.reduce((sum, note, i) => {
+      const prev = i < lastVoicing.length ? lastVoicing[i] : lastVoicing[lastVoicing.length - 1];
+      return sum + Math.abs((Tonal.Note.midi(note) || 0) - (Tonal.Note.midi(prev) || 0));
+    }, 0);
+  return voicings.slice().sort((a, b) => movement(a) - movement(b))[0];
+}
+
+// ─── Config from UI ──────────────────────────────────────────────────────
+
+function getConfig() {
+  const seedInput = $('#seed').value.trim();
+  const seed = seedInput ? parseInt(seedInput) : (Date.now() % 100000);
+  return {
+    seed,
+    bpm: $val('bpm'),
+    key: $('#key').value,
+    phraseLen: parseInt($('#phrase-len').value),
+    repeats: parseInt($('#repeats').value),
+    filterFreq: $val('filter-freq'),
+    reverbDecay: $val('reverb-decay'),
+    reverbMix: $val('reverb-mix') / 100,
+    chorusDepth: $val('chorus-depth') / 100,
+    attack: $val('attack'),
+    release: $val('release'),
+    oscType: $('#osc-type').value,
+    spread: $val('spread'),
+  };
+}
+
+// ─── Build Chord Sequence ────────────────────────────────────────────────
+
+function buildChordSequence(config) {
+  seedRng(config.seed);
+
+  const tonic = config.key;
+  const phrase = generatePhrase(config.phraseLen);
+  const chordSymbols = Tonal.Progression.fromRomanNumerals(tonic, phrase);
+
+  // Voice the phrase using Tonal.Voicing
+  const voiceRange = ['C3', 'C5'];
+  const dictionary = Tonal.VoicingDictionary.triads;
+  let lastVoicing = null;
+  const phraseVoicings = [];
+
+  for (const symbol of chordSymbols) {
+    const candidates = Tonal.Voicing.search(symbol, voiceRange, dictionary);
+    if (candidates.length === 0) {
+      const v = Tonal.Voicing.get(symbol, voiceRange, dictionary, Tonal.VoiceLeading.topNoteDiff, lastVoicing);
+      phraseVoicings.push(v);
+      lastVoicing = v;
+    } else {
+      const chosen = minimalMovement(candidates, lastVoicing);
+      phraseVoicings.push(chosen);
+      lastVoicing = chosen;
+    }
+  }
+
+  // Repeat phrase
+  const totalBars = config.phraseLen * config.repeats;
+  const barData = [];
+  for (let repeat = 0; repeat < config.repeats; repeat++) {
+    for (let i = 0; i < config.phraseLen; i++) {
+      barData.push({
+        symbol: chordSymbols[i],
+        numeral: phrase[i],
+        voiced: phraseVoicings[i],
+      });
+    }
+  }
+
+  return { tonic, phrase, chordSymbols, barData, totalBars };
+}
+
+// ─── Tone.js Live Preview ────────────────────────────────────────────────
+
+let synth = null;
+let chorus = null;
+let filter = null;
+let reverb = null;
+let part = null;
+let highlightId = null;
+let barEls = [];
+
+function disposeAudio() {
+  const transport = Tone.getTransport();
+  transport.stop();
+  transport.cancel();
+
+  if (part) { part.dispose(); part = null; }
+  if (synth) { synth.dispose(); synth = null; }
+  if (chorus) { chorus.dispose(); chorus = null; }
+  if (filter) { filter.dispose(); filter = null; }
+  if (reverb) { reverb.dispose(); reverb = null; }
+  if (highlightId != null) {
+    transport.clear(highlightId);
+    highlightId = null;
+  }
+  barEls = [];
+}
+
+async function previewLive() {
+  stopPreview();
+  clearLog();
+
+  await Tone.start();
+
+  const config = getConfig();
+  const seq = buildChordSequence(config);
+
+  // Log
+  log(`Seed: ${config.seed}`);
+  log(`Key: ${seq.tonic} minor`);
+  log(`Phrase: ${seq.phrase.join(' \u2192 ')}`);
+  log(`Chords: ${seq.chordSymbols.join(' \u2192 ')}`);
+  log(`BPM: ${config.bpm}  Bars: ${seq.totalBars}  (${config.phraseLen}-chord phrase x${config.repeats})`);
+  log('');
+
+  barEls = [];
+  for (let bar = 0; bar < seq.totalBars; bar++) {
+    const b = seq.barData[bar];
+    const noteStr = b.voiced.join(' ');
+    const line = `Bar ${String(bar).padStart(2)}: ${b.numeral.padEnd(5)} ${b.symbol.padEnd(6)} \u2192  ${noteStr}`;
+    const span = log(line);
+    span.style.borderRadius = '2px';
+    barEls.push(span);
+  }
+
+  // Create synth + effects
+  synth = new Tone.PolySynth(Tone.Synth, {
+    oscillator: { type: config.oscType, count: 3, spread: config.spread },
+    envelope: { attack: config.attack, decay: 0.3, sustain: 0.7, release: config.release },
+  });
+
+  chorus = new Tone.Chorus({ frequency: 0.5, delayTime: 3.5, depth: config.chorusDepth, wet: 0.4 }).start();
+  filter = new Tone.Filter({ frequency: config.filterFreq, type: 'lowpass', rolloff: -12 });
+  reverb = new Tone.Reverb({ decay: config.reverbDecay, wet: config.reverbMix });
+
+  synth.chain(chorus, filter, reverb, Tone.getDestination());
+
+  // Schedule chords via Part
+  const events = seq.barData.map((b, bar) => {
+    return [Tone.Time({ '1m': bar }).toSeconds(), b.voiced];
+  });
+
+  part = new Tone.Part((time, notes) => {
+    synth.triggerAttackRelease(notes, '1m', time);
+  }, events);
+  part.start(0);
+
+  // Bar highlighting
+  const transport = Tone.getTransport();
+
+  highlightId = transport.scheduleRepeat((time) => {
+    Tone.getDraw().schedule(() => {
+      const pos = transport.position;
+      const currentBar = parseInt(pos.split(':')[0], 10);
+      for (let i = 0; i < barEls.length; i++) {
+        if (i === currentBar) {
+          barEls[i].style.background = '#2a1848';
+          barEls[i].style.color = '#e0c0ff';
+          barEls[i].scrollIntoView({ block: 'nearest' });
+        } else {
+          barEls[i].style.background = 'none';
+          barEls[i].style.color = '#c8c8e0';
+        }
+      }
+    }, time);
+  }, '1m');
+
+  // Stop after all bars
+  transport.schedule(() => {
+    stopPreview();
+  }, Tone.Time({ '1m': seq.totalBars }).toSeconds());
+
+  transport.bpm.value = config.bpm;
+  transport.start();
+
+  $('#btn-preview').textContent = 'Stop';
+  $('#btn-preview').onclick = stopPreview;
+  statusEl.textContent = `Playing seed ${config.seed}...`;
+}
+
+function stopPreview() {
+  disposeAudio();
+  $('#btn-preview').textContent = 'Preview Live';
+  $('#btn-preview').onclick = previewLive;
+  statusEl.textContent = 'Stopped.';
+}
+
+// ─── Offline Render (Generate + Download) ────────────────────────────────
+
+let songCount = 0;
+
+async function generate() {
+  const btn = $('#btn-generate');
+  btn.disabled = true;
+  statusEl.textContent = 'Rendering...';
+  songCount++;
+
+  await new Promise(r => setTimeout(r, 10));
+
+  try {
+    const config = getConfig();
+    const seq = buildChordSequence(config);
+    const barSec = (60 / config.bpm) * 4;
+    const totalDuration = seq.totalBars * barSec + config.release + 1; // extra for tail
+
+    const buffer = await Tone.Offline(({ transport }) => {
+      const offSynth = new Tone.PolySynth(Tone.Synth, {
+        oscillator: { type: config.oscType, count: 3, spread: config.spread },
+        envelope: { attack: config.attack, decay: 0.3, sustain: 0.7, release: config.release },
+      });
+
+      const offChorus = new Tone.Chorus({ frequency: 0.5, delayTime: 3.5, depth: config.chorusDepth, wet: 0.4 }).start();
+      const offFilter = new Tone.Filter({ frequency: config.filterFreq, type: 'lowpass', rolloff: -12 });
+      const offReverb = new Tone.Reverb({ decay: config.reverbDecay, wet: config.reverbMix });
+
+      offSynth.chain(offChorus, offFilter, offReverb, Tone.getDestination());
+
+      const events = seq.barData.map((b, bar) => {
+        return [Tone.Time({ '1m': bar }).toSeconds(), b.voiced];
+      });
+
+      const offPart = new Tone.Part((time, notes) => {
+        offSynth.triggerAttackRelease(notes, '1m', time);
+      }, events);
+      offPart.start(0);
+
+      transport.bpm.value = config.bpm;
+      transport.start();
+    }, totalDuration);
+
+    // Analyze
+    const analysis = analyzeBuffer(buffer);
+    const peakDb = (20 * Math.log10(Math.max(analysis.peakL, analysis.peakR))).toFixed(1);
+
+    // Encode WAV
+    const wavBlob = audioBufferToWav(buffer);
+    const url = URL.createObjectURL(wavBlob);
+
+    playerEl.innerHTML = `<audio controls src="${url}"></audio>`;
+
+    const num = String(songCount).padStart(3, '0');
+    const dlWav = $('#dl-wav');
+    dlWav.href = url;
+    dlWav.download = `pad_${num}_seed${config.seed}.wav`;
+
+    downloadsEl.style.display = 'flex';
+
+    statusEl.textContent = `Generated #${songCount} \u2014 seed:${config.seed} ${config.bpm}BPM ${seq.tonic}m ${seq.totalBars} bars peak:${peakDb}dB`;
+
+    // Log details
+    clearLog();
+    log(`Seed: ${config.seed}`);
+    log(`Key: ${seq.tonic} minor`);
+    log(`Phrase: ${seq.phrase.join(' \u2192 ')}`);
+    log(`Duration: ${(seq.totalBars * barSec).toFixed(1)}s  Peak: ${peakDb}dB  Clip: ${analysis.clippedCount}`);
+  } catch (err) {
+    statusEl.textContent = `Error: ${err.message}`;
+    console.error(err);
+  }
+
+  btn.disabled = false;
+}
+
+// ─── Audio Analysis ──────────────────────────────────────────────────────
+
+function analyzeBuffer(buffer) {
+  const L = buffer.getChannelData(0);
+  const R = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : L;
+  let peakL = 0, peakR = 0;
+  let clippedCount = 0;
+
+  for (let i = 0; i < buffer.length; i++) {
+    const absL = Math.abs(L[i]);
+    const absR = Math.abs(R[i]);
+    if (absL > peakL) peakL = absL;
+    if (absR > peakR) peakR = absR;
+    if (absL > 0.99 || absR > 0.99) clippedCount++;
+  }
+
+  return { peakL, peakR, clippedCount };
+}
+
+// ─── WAV Encoding ────────────────────────────────────────────────────────
+
+function audioBufferToWav(buffer) {
+  const numCh = buffer.numberOfChannels;
+  const sr = buffer.sampleRate;
+  const blockAlign = numCh * 2;
+  const dataSize = buffer.length * blockAlign;
+
+  const buf = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buf);
+
+  function writeStr(offset, str) {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  }
+
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeStr(8, 'WAVE'); writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, numCh, true);
+  view.setUint32(24, sr, true);
+  view.setUint32(28, sr * blockAlign, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, 16, true);
+  writeStr(36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  const channels = [];
+  for (let ch = 0; ch < numCh; ch++) channels.push(buffer.getChannelData(ch));
+
+  let offset = 44;
+  for (let i = 0; i < buffer.length; i++) {
+    for (let ch = 0; ch < numCh; ch++) {
+      const s = Math.max(-1, Math.min(1, channels[ch][i]));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      offset += 2;
+    }
+  }
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
+// ─── Randomize ───────────────────────────────────────────────────────────
+
+function randomizeAll() {
+  seedRng(Date.now() % 100000);
+
+  $('#bpm').value = rngInt(80, 140);
+  $('#bpm-val').textContent = $('#bpm').value;
+
+  $('#key').selectedIndex = rngInt(0, 5);
+
+  $('#filter-freq').value = rngInt(400, 4000);
+  $('#filter-val').textContent = $('#filter-freq').value;
+
+  const rv = (rngInt(2, 10)).toFixed(1);
+  $('#reverb-decay').value = rv;
+  $('#reverb-val').textContent = parseFloat(rv).toFixed(1);
+
+  const rm = rngInt(20, 80);
+  $('#reverb-mix').value = rm;
+  $('#reverb-mix-val').textContent = rm;
+
+  const cd = rngInt(20, 100);
+  $('#chorus-depth').value = cd;
+  $('#chorus-val').textContent = cd;
+
+  const atk = (rngInt(1, 25) / 10).toFixed(1);
+  $('#attack').value = atk;
+  $('#attack-val').textContent = atk;
+
+  const rel = (rngInt(5, 50) / 10).toFixed(1);
+  $('#release').value = rel;
+  $('#release-val').textContent = parseFloat(rel).toFixed(1);
+
+  $('#osc-type').selectedIndex = rngInt(0, 3);
+
+  const sp = rngInt(5, 80);
+  $('#spread').value = sp;
+  $('#spread-val').textContent = sp;
+
+  $('#phrase-len').selectedIndex = rngInt(0, 2);
+  $('#repeats').selectedIndex = rngInt(0, 2);
+
+  $('#seed').value = '';
+}
+</script>
+</body>
+</html>
