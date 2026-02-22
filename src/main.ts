@@ -11,8 +11,10 @@ import { createMusic } from './music.js';
 
 const BUILD = 'v18';
 
-const $ = sel => document.querySelector(sel);
-const updateStyle = (el, styles) => Object.assign(el.style, styles);
+type Hand = 'left' | 'right';
+
+const $ = (sel: string) => document.querySelector(sel) as HTMLElement;
+const updateStyle = (el: HTMLElement, styles: Partial<CSSStyleDeclaration>) => Object.assign(el.style, styles);
 
 const HIT_SCORE_CORRECT = 100;
 const HIT_SCORE_WRONG   = 25;
@@ -49,7 +51,7 @@ const hitTesters  = {
   right: blocks.createHitTester(),
 };
 
-function resetGameState({ isStarting }) {
+function resetGameState({ isStarting }: { isStarting: boolean }) {
   blocks.clearAllBlocks();
   spawnTimer = 0;
   hud.reset();
@@ -79,17 +81,17 @@ const tmpTip     = new THREE.Vector3();
 const tmpMat     = new THREE.Matrix4();
 
 // Mutable context updated per controller — avoids per-frame closure allocation
-const hitCtx = { isLeftHand: false, hand: 'left' };
+const hitCtx = { isLeftHand: false, hand: 'left' as Hand };
 
-function onHit(pos, isRed) {
+function onHit(pos: THREE.Vector3, isRed: boolean) {
   particles.explode(pos, isRed ? COLOR_RED : COLOR_BLUE);
   const correct = hitCtx.isLeftHand === isRed;
   hud.addScore(correct ? HIT_SCORE_CORRECT : HIT_SCORE_WRONG);
   xr.triggerHaptic(hitCtx.hand, 1.0, correct ? HAPTIC_MS_CORRECT : HAPTIC_MS_WRONG);
 }
 
-function onControllerFrame(hand, matrix) {
-  const saber = sabers[hand];
+function onControllerFrame(hand: Hand, matrix: Float32Array) {
+  const saber = sabers[hand] as THREE.Object3D;
   tmpMat.fromArray(matrix);
   tmpMat.decompose(saber.position, saber.quaternion, saber.scale);
   tmpPos.copy(saber.position);
@@ -100,10 +102,10 @@ function onControllerFrame(hand, matrix) {
 
   hitCtx.isLeftHand = hand === 'left';
   hitCtx.hand = hand;
-  hitTesters[hand].testHit(tmpStart, tmpTip, onHit);
+  (hitTesters[hand] as { testHit: Function; reset: Function }).testHit(tmpStart, tmpTip, onHit);
 }
 
-renderer.setAnimationLoop((time, frame) => {
+renderer.setAnimationLoop((time: number, frame: XRFrame | null) => {
   const dt = Math.min((time - lastTime) / 1000, 0.05);
   lastTime = time;
 

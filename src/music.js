@@ -242,7 +242,7 @@ export function createMusic() {
     }
   }, SCHED_MS);
 
-  const locked = (task) => () => mutex.withLock(task).catch(console.error);
+  const locked = (task) => () => { mutex.withLock(task); };
 
   return {
     start:             locked(() => start(audioCtx, sched)),
