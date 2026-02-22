@@ -8,8 +8,8 @@ const LANE_SPACING       = CUBE_SIZE + CUBE_GAP;
 const CUBE_HIT_MARGIN    = Math.min(0.07, CUBE_GAP / 2);
 const PARALLEL_EPSILON   = 1e-8;
 
-const LANES_X    = [-1.5, -0.5, 0.5, 1.5].map(n => n * LANE_SPACING);
-const LANES_Y    = [0.9, 1.35, 1.8];
+export const LANES_X    = [-1.5, -0.5, 0.5, 1.5].map(n => n * LANE_SPACING);
+export const LANES_Y    = [0.9, 1.35, 1.8];
 const SPAWN_Z       = -14;
 const DEBUG_WAVE_Z  =  -8;
 const MISS_Z        =  1.2;
@@ -58,6 +58,7 @@ export interface HitTester {
 export interface Blocks {
   root: THREE.Group;
   spawnBlock: () => void;
+  spawnBlockAt: (x: number, y: number, isRed: boolean) => void;
   clearAllBlocks: () => void;
   spawnDebugWave: () => void;
   toggleWireframe: () => void;
@@ -109,6 +110,10 @@ export function createBlocks(): Blocks {
       LANES_Y[Math.floor(Math.random() * LANES_Y.length)],
       SPAWN_Z, Math.random() < 0.5
     );
+  }
+
+  function spawnBlockAt(x: number, y: number, isRed: boolean): void {
+    spawnCube(x, y, SPAWN_Z, isRed);
   }
 
   function clearAllBlocks(): void {
@@ -196,5 +201,5 @@ export function createBlocks(): Blocks {
     return { testHit, reset };
   }
 
-  return { root, spawnBlock, clearAllBlocks, spawnDebugWave, toggleWireframe, tick, createHitTester };
+  return { root, spawnBlock, spawnBlockAt, clearAllBlocks, spawnDebugWave, toggleWireframe, tick, createHitTester };
 }

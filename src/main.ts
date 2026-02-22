@@ -9,9 +9,10 @@ import { createControllers } from './controllers';
 import { setupXRSession } from './xrSession';
 import type { Hand } from './xrSession';
 import { createMusic } from './music';
+import { createBeatmap } from './beatmap';
 import { COLOR_RED, COLOR_BLUE } from './colors';
 
-const BUILD = 'v18';
+const BUILD = 'v19';
 
 const $ = (sel: string) => document.querySelector(sel) as HTMLElement;
 const updateStyle = (el: HTMLElement, styles: Partial<CSSStyleDeclaration>) => Object.assign(el.style, styles);
@@ -20,7 +21,6 @@ const HIT_SCORE_CORRECT = 100;
 const HIT_SCORE_WRONG   = 25;
 const HAPTIC_MS_CORRECT = 250;
 const HAPTIC_MS_WRONG   = 120;
-const SPAWN_INTERVAL    = 1.0;
 const EYE_HEIGHT        = 1.6;
 
 // ─── IWER — emulates WebXR device so we can test in-browser ───────────────
@@ -43,7 +43,12 @@ scene.add(camera, environment, sabers.root, blocks.root, particles.root, hud.roo
 
 // ─── Systems ──────────────────────────────────────────────────────────────
 const music       = createMusic();
+const beatmap     = createBeatmap();
 const controllers = createControllers(music, blocks.toggleWireframe, blocks.spawnDebugWave);
+
+music.onSongEnd((song) => {
+  beatmap.loadSong(song);
+});
 
 const hitTesters = {
   left:  blocks.createHitTester(),
@@ -55,13 +60,14 @@ let sessionActive = false;
 function resetGameState({ isStarting }: { isStarting: boolean }): void {
   sessionActive = isStarting;
   blocks.clearAllBlocks();
-  spawnTimer = 0;
   hud.reset();
   hitTesters.left.reset();
   hitTesters.right.reset();
   if (isStarting) {
     updateStyle($('#ui'), { display: 'none' });
     music.start();
+    const song = music.songData();
+    if (song) beatmap.loadSong(song);
   } else {
     updateStyle($('#ui'), { display: 'flex' });
     music.stop();
@@ -74,7 +80,7 @@ const xr = setupXRSession(renderer,
 );
 
 // ─── Game Loop ────────────────────────────────────────────────────────────
-let lastTime = 0, spawnTimer = 0;
+let lastTime = 0;
 
 const tmpPos     = new THREE.Vector3();
 const tmpForward = new THREE.Vector3();
@@ -107,8 +113,8 @@ renderer.setAnimationLoop((time, frame) => {
   lastTime = time;
 
   if (sessionActive) {
-    spawnTimer += dt;
-    if (spawnTimer >= SPAWN_INTERVAL) { blocks.spawnBlock(); spawnTimer = 0; }
+    const cmds = beatmap.tick(music.currentTime());
+    for (const cmd of cmds) blocks.spawnBlockAt(cmd.x, cmd.y, cmd.isRed);
     blocks.tick(dt);
   }
 
