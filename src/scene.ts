@@ -1,5 +1,10 @@
 import * as THREE from 'three';
 
+const CAMERA_FOV  = 75;
+const VIEW_NEAR   = 0.01;
+const VIEW_FAR    = 100;
+const EYE_HEIGHT  = 1.6;
+
 export function createRenderer(): THREE.WebGLRenderer {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio);
@@ -17,8 +22,8 @@ export function createScene(): THREE.Scene {
 }
 
 export function createCamera(): THREE.PerspectiveCamera {
-  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 100);
-  camera.position.set(0, 1.6, 0);
+  const camera = new THREE.PerspectiveCamera(CAMERA_FOV, window.innerWidth / window.innerHeight, VIEW_NEAR, VIEW_FAR);
+  camera.position.set(0, EYE_HEIGHT, 0);
   return camera;
 }
 

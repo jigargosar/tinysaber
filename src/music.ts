@@ -1,9 +1,10 @@
 import Mutex from 'p-mutex';
 
-const BPM       = 124;
-const STEP_SEC  = (60 / BPM) / 2; // 8th note
-const LOOKAHEAD = 0.12;
-const SCHED_MS  = 40;
+const BPM          = 124;
+const STEP_SEC     = (60 / BPM) / 2; // 8th note
+const LOOKAHEAD    = 0.12;
+const SCHED_MS     = 40;
+const STEPS_PER_BAR = 16;
 
 interface Stage {
   bars: number;
@@ -71,21 +72,18 @@ interface SongSection {
 }
 
 function getSongSection(globalStep: number): SongSection {
-  const STEPS_PER_BAR = 16;
   const cycleLen = STAGES.reduce((s, st) => s + st.bars * STEPS_PER_BAR, 0);
   let remaining = globalStep % cycleLen;
-  let stageIndex = 0;
   for (const stage of STAGES) {
     const stageSteps = stage.bars * STEPS_PER_BAR;
     if (remaining < stageSteps) {
       const bar  = Math.floor(remaining / STEPS_PER_BAR);
       const step = remaining % STEPS_PER_BAR;
       // Intro only: on even bars (1, 3), add a kick hit on step 2
-      const extraKick = stageIndex === 0 && bar % 2 === 1 && step === 2;
+      const extraKick = stage === STAGES[0] && bar % 2 === 1 && step === 2;
       return { stage, step, extraKick };
     }
     remaining -= stageSteps;
-    stageIndex++;
   }
   return { stage: STAGES[0], step: 0, extraKick: false };
 }
@@ -266,19 +264,28 @@ export function createMusic(): Music {
     playArp(t,  stage.arp[step]);
   }
 
-  setInterval(() => {
-    if (audioCtx.state !== 'running') return;
-    while (sched.nextTime < audioCtx.currentTime + LOOKAHEAD) {
-      scheduleStep(sched.step++, sched.nextTime);
-      sched.nextTime += STEP_SEC;
-    }
-  }, SCHED_MS);
+  let intervalId: ReturnType<typeof setInterval> | null = null;
 
-  const locked = (task: () => Promise<void>) => () => { mutex.withLock(task); };
+  function startScheduler(): void {
+    if (intervalId !== null) return;
+    intervalId = setInterval(() => {
+      if (audioCtx.state !== 'running') return;
+      while (sched.nextTime < audioCtx.currentTime + LOOKAHEAD) {
+        scheduleStep(sched.step++, sched.nextTime);
+        sched.nextTime += STEP_SEC;
+      }
+    }, SCHED_MS);
+  }
+
+  function stopScheduler(): void {
+    if (intervalId !== null) { clearInterval(intervalId); intervalId = null; }
+  }
+
+  const locked = (task: () => Promise<void>) => () => { mutex.withLock(task).catch(console.error); };
 
   return {
-    start:             locked(() => start(audioCtx, sched)),
-    stop:              locked(() => stop(audioCtx)),
+    start:             locked(async () => { await start(audioCtx, sched); startScheduler(); }),
+    stop:              locked(async () => { stopScheduler(); await stop(audioCtx); }),
     pauseResumeToggle: locked(() => pauseResumeToggle(audioCtx, sched)),
   };
 }

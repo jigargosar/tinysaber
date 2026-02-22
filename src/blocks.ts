@@ -1,9 +1,12 @@
 import * as THREE from 'three';
+import { COLOR_RED, COLOR_BLUE } from './colors';
+import type { Hand } from './xrSession';
 
-const CUBE_SIZE       = 0.32;
-const CUBE_GAP        = 0.15;
-const LANE_SPACING    = CUBE_SIZE + CUBE_GAP;
-const CUBE_HIT_MARGIN = Math.min(0.07, CUBE_GAP / 2);
+const CUBE_SIZE          = 0.32;
+const CUBE_GAP           = 0.15;
+const LANE_SPACING       = CUBE_SIZE + CUBE_GAP;
+const CUBE_HIT_MARGIN    = Math.min(0.07, CUBE_GAP / 2);
+const PARALLEL_EPSILON   = 1e-8;
 
 const LANES_X    = [-1.5, -0.5, 0.5, 1.5].map(n => n * LANE_SPACING);
 const LANES_Y    = [0.9, 1.35, 1.8];
@@ -14,32 +17,27 @@ const CUBE_SPEED    =  4;
 const SUBSTEPS      =  6;
 
 const blockGeo     = new THREE.BoxGeometry(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE);
-const collisionGeo = new THREE.BoxGeometry(
+const wireframeGeo = new THREE.BoxGeometry(
   CUBE_SIZE + CUBE_HIT_MARGIN * 2,
   CUBE_SIZE + CUBE_HIT_MARGIN * 2,
   CUBE_SIZE + CUBE_HIT_MARGIN * 2
 );
-const edgeGeo = new THREE.EdgesGeometry(collisionGeo);
+const edgeGeo = new THREE.EdgesGeometry(wireframeGeo);
 
 type BlockColorKey = 'red' | 'blue';
 
 const MATS: Record<BlockColorKey, THREE.MeshLambertMaterial> = {
-  red:  new THREE.MeshLambertMaterial({ color: 0xff2020, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false }),
-  blue: new THREE.MeshLambertMaterial({ color: 0x2060ff, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false }),
+  red:  new THREE.MeshLambertMaterial({ color: COLOR_RED, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false }),
+  blue: new THREE.MeshLambertMaterial({ color: COLOR_BLUE, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false }),
 };
 const EDGE_MATS: Record<BlockColorKey, THREE.LineBasicMaterial> = {
   red:  new THREE.LineBasicMaterial({ color: 0xffffff }),
   blue: new THREE.LineBasicMaterial({ color: 0xffffff }),
 };
 
-// Pre-allocated temporaries — zero garbage in the hot path
-const _blockPos  = new THREE.Vector3();
-const _hitPos    = new THREE.Vector3();
-const _box       = new THREE.Box3();
+// Pre-allocated temporaries shared by segmentHitsBox (called from HitTester)
 const _expanded  = new THREE.Box3();
 const _d         = new THREE.Vector3();
-const _segA      = new THREE.Vector3();
-const _segB      = new THREE.Vector3();
 
 interface BlockData {
   isRed: boolean;
@@ -50,10 +48,10 @@ function blockData(mesh: THREE.Mesh): BlockData {
   return mesh.userData as BlockData;
 }
 
-export type HitCallback = (position: THREE.Vector3, isRed: boolean) => void;
+export type HitCallback = (position: THREE.Vector3, isRed: boolean, hand: Hand) => void;
 
 export interface HitTester {
-  testHit: (segStart: THREE.Vector3, segEnd: THREE.Vector3, onHit: HitCallback) => void;
+  testHit: (segStart: THREE.Vector3, segEnd: THREE.Vector3, hand: Hand, onHit: HitCallback) => void;
   reset: () => void;
 }
 
@@ -71,16 +69,20 @@ function segmentHitsBox(a: THREE.Vector3, b: THREE.Vector3, box: THREE.Box3): bo
   _expanded.copy(box).expandByScalar(CUBE_HIT_MARGIN);
   _d.subVectors(b, a);
   let tmin = 0, tmax = 1;
-  let da: number, t0: number, t1: number;
-  da = _d.x;
-  if (Math.abs(da) < 1e-8) { if (a.x < _expanded.min.x || a.x > _expanded.max.x) return false; }
-  else { t0 = (_expanded.min.x - a.x) / da; t1 = (_expanded.max.x - a.x) / da; tmin = Math.max(tmin, Math.min(t0,t1)); tmax = Math.min(tmax, Math.max(t0,t1)); if (tmin > tmax) return false; }
-  da = _d.y;
-  if (Math.abs(da) < 1e-8) { if (a.y < _expanded.min.y || a.y > _expanded.max.y) return false; }
-  else { t0 = (_expanded.min.y - a.y) / da; t1 = (_expanded.max.y - a.y) / da; tmin = Math.max(tmin, Math.min(t0,t1)); tmax = Math.min(tmax, Math.max(t0,t1)); if (tmin > tmax) return false; }
-  da = _d.z;
-  if (Math.abs(da) < 1e-8) { if (a.z < _expanded.min.z || a.z > _expanded.max.z) return false; }
-  else { t0 = (_expanded.min.z - a.z) / da; t1 = (_expanded.max.z - a.z) / da; tmin = Math.max(tmin, Math.min(t0,t1)); tmax = Math.min(tmax, Math.max(t0,t1)); if (tmin > tmax) return false; }
+  let axisD: number, t0: number, t1: number;
+
+  axisD = _d.x;
+  if (Math.abs(axisD) < PARALLEL_EPSILON) { if (a.x < _expanded.min.x || a.x > _expanded.max.x) return false; }
+  else { t0 = (_expanded.min.x - a.x) / axisD; t1 = (_expanded.max.x - a.x) / axisD; tmin = Math.max(tmin, Math.min(t0,t1)); tmax = Math.min(tmax, Math.max(t0,t1)); if (tmin > tmax) return false; }
+
+  axisD = _d.y;
+  if (Math.abs(axisD) < PARALLEL_EPSILON) { if (a.y < _expanded.min.y || a.y > _expanded.max.y) return false; }
+  else { t0 = (_expanded.min.y - a.y) / axisD; t1 = (_expanded.max.y - a.y) / axisD; tmin = Math.max(tmin, Math.min(t0,t1)); tmax = Math.min(tmax, Math.max(t0,t1)); if (tmin > tmax) return false; }
+
+  axisD = _d.z;
+  if (Math.abs(axisD) < PARALLEL_EPSILON) { if (a.z < _expanded.min.z || a.z > _expanded.max.z) return false; }
+  else { t0 = (_expanded.min.z - a.z) / axisD; t1 = (_expanded.max.z - a.z) / axisD; tmin = Math.max(tmin, Math.min(t0,t1)); tmax = Math.min(tmax, Math.max(t0,t1)); if (tmin > tmax) return false; }
+
   return true;
 }
 
@@ -146,15 +148,18 @@ export function createBlocks(): Blocks {
     }
   }
 
-  // onHit(position: THREE.Vector3, isRed: boolean)
-  // position is a shared pre-allocated vector — caller must not store the reference
   function createHitTester(): HitTester {
+    const _blockPos = new THREE.Vector3();
+    const _box      = new THREE.Box3();
+    const _segA     = new THREE.Vector3();
+    const _segB     = new THREE.Vector3();
+
     const prev = {
-      start: new THREE.Vector3(),
-      end:   new THREE.Vector3(),
+      start: new THREE.Vector3(0, -100, 0),
+      end:   new THREE.Vector3(0, -100, 0),
     };
 
-    function testHit(segStart: THREE.Vector3, segEnd: THREE.Vector3, onHit: HitCallback): void {
+    function testHit(segStart: THREE.Vector3, segEnd: THREE.Vector3, hand: Hand, onHit: HitCallback): void {
       for (let i = blocks.length - 1; i >= 0; i--) {
         const b = blocks[i];
 
@@ -174,8 +179,8 @@ export function createBlocks(): Blocks {
         if (hit) {
           root.remove(b);
           blocks.splice(i, 1);
-          _hitPos.copy(_blockPos);
-          onHit(_hitPos, blockData(b).isRed);
+          const hitPos = _blockPos.clone();
+          onHit(hitPos, blockData(b).isRed, hand);
         }
       }
 
@@ -184,8 +189,8 @@ export function createBlocks(): Blocks {
     }
 
     function reset(): void {
-      prev.start.set(0, 0, 0);
-      prev.end.set(0, 0, 0);
+      prev.start.set(0, -100, 0);
+      prev.end.set(0, -100, 0);
     }
 
     return { testHit, reset };

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { COLOR_RED, COLOR_BLUE } from './colors';
 
 const POOL_SIZE             = 96;
 const PARTICLES_PER_EXPLODE = 12;
@@ -9,8 +10,8 @@ const PARTICLE_LIFE_MIN     = 0.45;
 const PARTICLE_LIFE_RANGE   = 0.2;
 
 const partGeo     = new THREE.BoxGeometry(PARTICLE_SIZE, PARTICLE_SIZE, PARTICLE_SIZE);
-const partMatRed  = new THREE.MeshBasicMaterial({ color: 0xff2020 });
-const partMatBlue = new THREE.MeshBasicMaterial({ color: 0x2060ff });
+const partMatRed  = new THREE.MeshBasicMaterial({ color: COLOR_RED });
+const partMatBlue = new THREE.MeshBasicMaterial({ color: COLOR_BLUE });
 
 interface ParticleData {
   vel: THREE.Vector3;
@@ -42,7 +43,7 @@ export function createParticles(): Particles {
   }
 
   function explode(pos: THREE.Vector3, color: number): void {
-    const mat = color === 0xff2020 ? partMatRed : partMatBlue;
+    const mat = color === COLOR_RED ? partMatRed : partMatBlue;
     let spawned = 0;
     for (let i = 0; i < POOL_SIZE && spawned < PARTICLES_PER_EXPLODE; i++) {
       const p = pool[i];

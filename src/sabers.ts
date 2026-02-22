@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { COLOR_RED, COLOR_BLUE } from './colors';
 
 const HANDLE_LENGTH = 0.11;
 const BLADE_LENGTH  = 1.10;
@@ -45,8 +46,8 @@ export interface Sabers {
 
 export function createSabers(): Sabers {
   const root  = new THREE.Group();
-  const left  = makeSaber(0xff2020);
-  const right = makeSaber(0x2060ff);
+  const left  = makeSaber(COLOR_RED);
+  const right = makeSaber(COLOR_BLUE);
   left.position.set(-0.5, 1.2, -0.4);
   right.position.set(0.5, 1.2, -0.4);
   root.add(left, right);

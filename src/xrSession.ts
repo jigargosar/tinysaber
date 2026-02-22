@@ -22,10 +22,12 @@ export function setupXRSession(
   if (!enterBtn) throw new Error('Missing #enter-btn element');
 
   enterBtn.addEventListener('click', async () => {
+    if (xrSession) return;
     if (!navigator.xr) { setStatus('WebXR not available'); return; }
     const ok = await navigator.xr.isSessionSupported('immersive-vr').catch(() => false);
     if (!ok) { setStatus('immersive-vr not supported on this device/browser'); return; }
 
+    enterBtn.setAttribute('disabled', 'true');
     try {
       xrSession = await navigator.xr.requestSession('immersive-vr', {
         requiredFeatures: ['local-floor'],
@@ -37,6 +39,7 @@ export function setupXRSession(
         refSpace  = null;
         inputSources.left  = null;
         inputSources.right = null;
+        enterBtn.removeAttribute('disabled');
         onSessionEnd();
       });
 
@@ -44,6 +47,7 @@ export function setupXRSession(
       await renderer.xr.setSession(xrSession);
       onSessionStart();
     } catch (err) {
+      enterBtn.removeAttribute('disabled');
       const message = err instanceof Error ? err.message : String(err);
       setStatus(`Failed to start VR session: ${message}`);
       if (xrSession) { xrSession.end().catch(() => {}); xrSession = null; }

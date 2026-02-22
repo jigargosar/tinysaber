@@ -9,6 +9,7 @@ import { createControllers } from './controllers';
 import { setupXRSession } from './xrSession';
 import type { Hand } from './xrSession';
 import { createMusic } from './music';
+import { COLOR_RED, COLOR_BLUE } from './colors';
 
 const BUILD = 'v18';
 
@@ -20,13 +21,12 @@ const HIT_SCORE_WRONG   = 25;
 const HAPTIC_MS_CORRECT = 250;
 const HAPTIC_MS_WRONG   = 120;
 const SPAWN_INTERVAL    = 1.0;
-const COLOR_RED         = 0xff2020;
-const COLOR_BLUE        = 0x2060ff;
+const EYE_HEIGHT        = 1.6;
 
 // ─── IWER — emulates WebXR device so we can test in-browser ───────────────
 const xrDevice = new XRDevice(metaQuest3);
 xrDevice.installRuntime();
-xrDevice.position.set(0, 1.6, 0);
+xrDevice.position.set(0, EYE_HEIGHT, 0);
 
 // ─── Scene ────────────────────────────────────────────────────────────────
 const renderer    = createRenderer();
@@ -50,7 +50,10 @@ const hitTesters = {
   right: blocks.createHitTester(),
 };
 
+let sessionActive = false;
+
 function resetGameState({ isStarting }: { isStarting: boolean }): void {
+  sessionActive = isStarting;
   blocks.clearAllBlocks();
   spawnTimer = 0;
   hud.reset();
@@ -79,14 +82,11 @@ const tmpStart   = new THREE.Vector3();
 const tmpTip     = new THREE.Vector3();
 const tmpMat     = new THREE.Matrix4();
 
-// Mutable context updated per controller — avoids per-frame closure allocation
-const hitCtx = { isLeftHand: false, hand: 'left' as Hand };
-
-function onHit(pos: THREE.Vector3, isRed: boolean): void {
+function onHit(pos: THREE.Vector3, isRed: boolean, hand: Hand): void {
   particles.explode(pos, isRed ? COLOR_RED : COLOR_BLUE);
-  const correct = hitCtx.isLeftHand === isRed;
+  const correct = (hand === 'left') === isRed;
   hud.addScore(correct ? HIT_SCORE_CORRECT : HIT_SCORE_WRONG);
-  xr.triggerHaptic(hitCtx.hand, 1.0, correct ? HAPTIC_MS_CORRECT : HAPTIC_MS_WRONG);
+  xr.triggerHaptic(hand, 1.0, correct ? HAPTIC_MS_CORRECT : HAPTIC_MS_WRONG);
 }
 
 function onControllerFrame(hand: Hand, matrix: Float32Array): void {
@@ -99,19 +99,19 @@ function onControllerFrame(hand: Hand, matrix: Float32Array): void {
   tmpStart.copy(tmpPos);
   tmpTip.copy(tmpPos).addScaledVector(tmpForward, SABER_REACH);
 
-  hitCtx.isLeftHand = hand === 'left';
-  hitCtx.hand = hand;
-  hitTesters[hand].testHit(tmpStart, tmpTip, onHit);
+  hitTesters[hand].testHit(tmpStart, tmpTip, hand, onHit);
 }
 
 renderer.setAnimationLoop((time, frame) => {
   const dt = Math.min((time - lastTime) / 1000, 0.05);
   lastTime = time;
 
-  spawnTimer += dt;
-  if (spawnTimer >= SPAWN_INTERVAL) { blocks.spawnBlock(); spawnTimer = 0; }
+  if (sessionActive) {
+    spawnTimer += dt;
+    if (spawnTimer >= SPAWN_INTERVAL) { blocks.spawnBlock(); spawnTimer = 0; }
+    blocks.tick(dt);
+  }
 
-  blocks.tick(dt);
   particles.tick(dt);
 
   controllers.checkAllButtons(frame);
